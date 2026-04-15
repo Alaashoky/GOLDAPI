@@ -10,6 +10,24 @@ from goldbot.ai.prompts import SYSTEM_PROMPT, build_market_analysis_prompt
 from goldbot.execution.models import AIAnalysis, Signal
 
 
+def _extract_json(raw: str) -> str:
+    """Extract JSON from AI response, stripping markdown fences and extra text."""
+    text = raw.strip()
+    if not text:
+        return ""
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start : end + 1]
+    return text
+
+
 class MarketAnalyzer:
     def __init__(self, api_key: str, model: str, timeout_seconds: int = 12, retries: int = 1) -> None:
         self.api_key = api_key
@@ -51,6 +69,7 @@ class MarketAnalyzer:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
+            response_format={"type": "json_object"},
         )
         if not response.choices:
             logging.getLogger("goldbot").warning("AI analyzer returned no choices")
@@ -75,10 +94,11 @@ class MarketAnalyzer:
             try:
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     raw = pool.submit(self._invoke, prompt).result(timeout=self.timeout_seconds)
-                if not raw.strip():
-                    last_error = "AI empty response"
+                cleaned = _extract_json(raw)
+                if not cleaned:
+                    last_error = "AI empty response after cleaning"
                     continue
-                parsed = json.loads(raw)
+                parsed = json.loads(cleaned)
                 action = str(parsed.get("action", "HOLD")).upper()
                 signal = Signal(action) if action in {"BUY", "SELL", "HOLD"} else Signal.HOLD
                 confidence = int(max(0, min(100, int(parsed.get("confidence", 0)))))
