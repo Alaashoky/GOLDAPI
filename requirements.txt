@@ -1,4 +1,5 @@
 MetaTrader5
 openai
+python-dotenv
 PyYAML
 requests
