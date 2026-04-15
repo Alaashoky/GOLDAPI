@@ -12,15 +12,16 @@ from goldbot.config.settings import load_settings
 
 class SettingsTests(unittest.TestCase):
     def test_load_settings_calls_load_dotenv_before_env_reads(self) -> None:
-        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as defaults:
-            defaults.write("{}")
-            defaults_path = defaults.name
+        fd, defaults_path = tempfile.mkstemp(suffix=".yaml")
+        os.close(fd)
 
         def _seed_env() -> bool:
             os.environ["OPENAI_API_KEY"] = "dotenv-loaded-key"
             return True
 
         try:
+            with open(defaults_path, "w", encoding="utf-8") as defaults:
+                defaults.write("{}")
             with patch.dict(os.environ, {}, clear=True):
                 with patch("goldbot.config.settings.load_dotenv", side_effect=_seed_env) as mocked_load_dotenv:
                     settings = load_settings(defaults_path=defaults_path)

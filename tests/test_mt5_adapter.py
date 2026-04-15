@@ -32,9 +32,14 @@ class _FakeMT5:
 
 
 class MT5AdapterRatesTests(unittest.TestCase):
+    @staticmethod
+    def _adapter_with_rates(rates) -> MT5DataAdapter:
+        adapter = MT5DataAdapter(login=None, password="", server="")
+        adapter.mt5 = _FakeMT5(rates)
+        return adapter
+
     def test_get_rates_converts_structured_array_like_rows(self) -> None:
-        adapter = MT5DataAdapter(None, "", "")
-        adapter.mt5 = _FakeMT5(_FakeStructuredArray())
+        adapter = self._adapter_with_rates(_FakeStructuredArray())
 
         rates = adapter.get_rates("XAUUSD", "M15", 2)
 
@@ -47,8 +52,7 @@ class MT5AdapterRatesTests(unittest.TestCase):
         )
 
     def test_get_rates_keeps_plain_iterable_dict_rows_supported(self) -> None:
-        adapter = MT5DataAdapter(None, "", "")
-        adapter.mt5 = _FakeMT5([{"time": 1, "open": 2300.0, "close": 2301.0}])
+        adapter = self._adapter_with_rates([{"time": 1, "open": 2300.0, "close": 2301.0}])
 
         rates = adapter.get_rates("XAUUSD", "M15", 1)
 
