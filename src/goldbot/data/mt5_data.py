@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from statistics import mean, pstdev
+from typing import Any
 
 
 class MT5DataAdapter:
@@ -44,18 +45,18 @@ class MT5DataAdapter:
             raise RuntimeError("No bars received from MT5")
         return [dict(r) for r in rates]
 
-    def get_tick(self, symbol: str):
+    def get_tick(self, symbol: str) -> Any:
         assert self.mt5 is not None
         tick = self.mt5.symbol_info_tick(symbol)
         if tick is None:
             raise RuntimeError("No tick data")
         return tick
 
-    def account_info(self):
+    def account_info(self) -> Any:
         assert self.mt5 is not None
         return self.mt5.account_info()
 
-    def open_positions(self, symbol: str | None = None):
+    def open_positions(self, symbol: str | None = None) -> list[Any]:
         assert self.mt5 is not None
         if symbol:
             return self.mt5.positions_get(symbol=symbol) or []

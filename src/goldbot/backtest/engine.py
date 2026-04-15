@@ -60,4 +60,9 @@ class BacktestEngine:
                     }
             equity_curve.append(balance)
 
-        return {"starting_balance": starting_balance, "ending_balance": balance, "metrics": calculate_metrics(trades, equity_curve), "trades": trades}
+        return {
+            "starting_balance": starting_balance,
+            "ending_balance": balance,
+            "metrics": calculate_metrics(trades, equity_curve),
+            "trades": trades,
+        }

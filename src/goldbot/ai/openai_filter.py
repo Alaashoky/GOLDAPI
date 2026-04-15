@@ -63,14 +63,17 @@ class OpenAIFilter:
             return self._fallback("AI disabled or API key missing")
 
         prompt = build_filter_prompt(market_summary, signal)
-        last_error = ""
+        last_error = "AI response invalid"
         for _ in range(self.retries + 1):
             try:
                 with ThreadPoolExecutor(max_workers=1) as executor:
                     future = executor.submit(self._invoke, prompt)
                     raw = future.result(timeout=self.timeout_seconds)
+                if not raw.strip():
+                    last_error = "AI empty response"
+                    continue
                 parsed = json.loads(raw)
-                decision = str(parsed.get("decision", "REJECT")).upper()
+                decision = str(parsed.get("decision") or "REJECT").upper()
                 reason = str(parsed.get("reason", "No reason"))
                 risk_flags = [str(v) for v in parsed.get("risk_flags", [])]
                 if decision not in {"APPROVE", "REJECT"}:
