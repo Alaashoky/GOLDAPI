@@ -42,7 +42,8 @@ class MT5DataAdapter:
         rates = self.mt5.copy_rates_from_pos(symbol, tf, 0, bars)
         if rates is None or len(rates) == 0:
             raise RuntimeError("No bars received from MT5")
-        names = getattr(getattr(rates, "dtype", None), "names", None)
+        dtype = getattr(rates, "dtype", None)
+        names = getattr(dtype, "names", None) if dtype is not None else None
         if names:
             return [dict(zip(names, row)) for row in rates]
         return [dict(row) for row in rates]

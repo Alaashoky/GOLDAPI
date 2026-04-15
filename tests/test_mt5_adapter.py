@@ -34,7 +34,7 @@ class _FakeMT5:
 class MT5AdapterRatesTests(unittest.TestCase):
     @staticmethod
     def _adapter_with_rates(rates) -> MT5DataAdapter:
-        adapter = MT5DataAdapter(login=None, password="", server="")
+        adapter = MT5DataAdapter(login=None, password="test-password", server="test-server")
         adapter.mt5 = _FakeMT5(rates)
         return adapter
 
