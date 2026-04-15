@@ -8,6 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from goldbot.ai.analyzer import MarketAnalyzer, _extract_json
 from goldbot.execution.models import Signal
 
+TEST_API_KEY = "fake-api-key"
+
 
 class AnalyzerTests(unittest.TestCase):
     def test_extract_json_from_fenced_block(self) -> None:
@@ -19,8 +21,8 @@ class AnalyzerTests(unittest.TestCase):
         self.assertEqual(_extract_json(raw), '{"trend":"neutral","action":"HOLD"}')
 
     def test_analyze_parses_fenced_json_response(self) -> None:
-        analyzer = MarketAnalyzer(api_key="", model="gpt-4o-mini")
-        analyzer.client = object()
+        analyzer = MarketAnalyzer(api_key=TEST_API_KEY, model="gpt-4o-mini")
+        analyzer.client = SimpleNamespace()
         analyzer._invoke = lambda _prompt: (
             "```json\n"
             '{"trend":"bullish","support_levels":[3210.5],"resistance_levels":[3245.0],'
@@ -43,10 +45,11 @@ class AnalyzerTests(unittest.TestCase):
                 return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"action":"HOLD"}'))])
 
         completions = FakeCompletions()
-        analyzer = MarketAnalyzer(api_key="", model="gpt-4o-mini")
+        analyzer = MarketAnalyzer(api_key=TEST_API_KEY, model="gpt-4o-mini")
         analyzer.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
-        analyzer._invoke("prompt")
+        raw = analyzer._invoke("prompt")
         self.assertEqual(completions.kwargs["response_format"], {"type": "json_object"})
+        self.assertEqual(raw, '{"action":"HOLD"}')
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import json
 import logging
+import re
 
 from goldbot.ai.prompts import SYSTEM_PROMPT, build_market_analysis_prompt
 from goldbot.execution.models import AIAnalysis, Signal
@@ -15,16 +16,28 @@ def _extract_json(raw: str) -> str:
     text = raw.strip()
     if not text:
         return ""
-    if text.startswith("```"):
-        lines = text.split("\n")
+    lines = text.splitlines()
+    if lines and re.match(r"^```[A-Za-z0-9_-]*$", lines[0].strip()):
         lines = lines[1:]
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         text = "\n".join(lines).strip()
+
+    decoder = json.JSONDecoder()
+    start = text.find("{")
+    while start != -1:
+        try:
+            parsed, end = decoder.raw_decode(text[start:])
+            if isinstance(parsed, dict):
+                return text[start : start + end].strip()
+        except json.JSONDecodeError:
+            pass
+        start = text.find("{", start + 1)
+
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
+        return text[start : end + 1]
     return text
 
 
