@@ -45,7 +45,7 @@ class MT5DataAdapter:
         names = getattr(getattr(rates, "dtype", None), "names", None)
         if names:
             return [dict(zip(names, row)) for row in rates]
-        return [dict(row) if not isinstance(row, dict) else dict(row) for row in rates]
+        return [dict(row) for row in rates]
 
     def get_tick(self, symbol: str) -> Any:
         assert self.mt5 is not None
