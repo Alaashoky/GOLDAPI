@@ -20,6 +20,32 @@ class _FakeStructuredArray:
         return 2
 
 
+class _FakeNumpyScalar:
+    def __init__(self, value):
+        self._value = value
+
+    def item(self):
+        return self._value
+
+
+class _FakeStructuredArrayWithNumpyScalars:
+    class _DType:
+        names = ("time", "open", "close")
+
+    dtype = _DType()
+
+    def __iter__(self):
+        return iter(
+            [
+                (_FakeNumpyScalar(1), _FakeNumpyScalar(2300.0), _FakeNumpyScalar(2301.0)),
+                (_FakeNumpyScalar(2), _FakeNumpyScalar(2301.0), _FakeNumpyScalar(2302.0)),
+            ]
+        )
+
+    def __len__(self) -> int:
+        return 2
+
+
 class _FakeMT5:
     TIMEFRAME_M15 = 15
 
@@ -57,6 +83,21 @@ class MT5AdapterRatesTests(unittest.TestCase):
         rates = adapter.get_rates("XAUUSD", "M15", 1)
 
         self.assertEqual(rates, [{"time": 1, "open": 2300.0, "close": 2301.0}])
+
+    def test_get_rates_converts_numpy_like_scalars_to_python_types(self) -> None:
+        adapter = self._adapter_with_rates(_FakeStructuredArrayWithNumpyScalars())
+
+        rates = adapter.get_rates("XAUUSD", "M15", 2)
+
+        self.assertEqual(
+            rates,
+            [
+                {"time": 1, "open": 2300.0, "close": 2301.0},
+                {"time": 2, "open": 2301.0, "close": 2302.0},
+            ],
+        )
+        self.assertIsInstance(rates[0]["time"], int)
+        self.assertIsInstance(rates[0]["open"], float)
 
 
 if __name__ == "__main__":
