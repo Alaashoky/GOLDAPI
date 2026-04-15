@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from urllib import parse, request
 
 
@@ -20,5 +21,8 @@ class TelegramAlerter:
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         payload = parse.urlencode({"chat_id": self.chat_id, "text": message}).encode("utf-8")
         req = request.Request(url, data=payload, method="POST")
-        with request.urlopen(req, timeout=5):
-            pass
+        try:
+            with request.urlopen(req, timeout=5):
+                pass
+        except Exception as exc:
+            logging.getLogger("goldbot").warning("Telegram alert failed: %s", exc)

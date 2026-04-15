@@ -16,10 +16,14 @@ from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 def _load_csv_bars(path: Path) -> list[dict]:
     lines = path.read_text(encoding="utf-8").strip().splitlines()
     header = lines[0].split(",")
+    numeric_cols = {"open", "high", "low", "close", "tick_volume", "spread", "real_volume"}
     bars = []
-    for line in lines[1:]:
+    for idx, line in enumerate(lines[1:], start=2):
         values = line.split(",")
-        row = {k: float(v) if k not in {"time"} else v for k, v in zip(header, values)}
+        try:
+            row = {k: float(v) if k.strip().lower() in numeric_cols else v for k, v in zip(header, values)}
+        except ValueError as exc:
+            raise ValueError(f"Invalid numeric value in CSV at line {idx}: {line}") from exc
         bars.append(row)
     return bars
 

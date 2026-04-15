@@ -16,7 +16,7 @@ class MT5DataAdapter:
     def initialize(self) -> None:
         try:
             import MetaTrader5 as mt5  # type: ignore
-        except Exception as exc:  # pragma: no cover
+        except ImportError as exc:  # pragma: no cover
             raise RuntimeError("MetaTrader5 package is not available") from exc
         self.mt5 = mt5
         ok = mt5.initialize(login=self.login, password=self.password, server=self.server)

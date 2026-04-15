@@ -8,6 +8,8 @@ from goldbot.strategies.base import Strategy, hold
 
 class TrendEMAPullbackStrategy(Strategy):
     name = "trend_ema_pullback"
+    buy_rsi_ceiling = 70
+    sell_rsi_floor = 30
 
     def evaluate(self, bars: list[dict]) -> CandidateSignal:
         if len(bars) < 3:
@@ -18,8 +20,8 @@ class TrendEMAPullbackStrategy(Strategy):
         trend_up = last["ema_fast"] > last["ema_slow"]
         trend_down = last["ema_fast"] < last["ema_slow"]
 
-        pullback_buy = trend_up and last["low"] <= last["ema_fast"] <= last["close"] and last["rsi"] < 70
-        pullback_sell = trend_down and last["high"] >= last["ema_fast"] >= last["close"] and last["rsi"] > 30
+        pullback_buy = trend_up and last["low"] <= last["ema_fast"] <= last["close"] and last["rsi"] < self.buy_rsi_ceiling
+        pullback_sell = trend_down and last["high"] >= last["ema_fast"] >= last["close"] and last["rsi"] > self.sell_rsi_floor
 
         confidence = min(1.0, abs(last["ema_fast"] - last["ema_slow"]) / max(1e-6, last["atr"]))
 

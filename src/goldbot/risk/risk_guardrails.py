@@ -51,7 +51,7 @@ class RiskGuardrails:
     def register_trade_outcome(self, pnl: float, now: datetime | None = None) -> None:
         if pnl < 0:
             self.consecutive_losses += 1
-        else:
+        elif pnl > 0:
             self.consecutive_losses = 0
         if self.consecutive_losses >= self.max_consecutive_losses:
             ref = now or datetime.now(tz=timezone.utc)

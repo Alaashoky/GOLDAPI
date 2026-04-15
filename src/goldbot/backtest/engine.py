@@ -8,13 +8,15 @@ from goldbot.strategies.base import Strategy
 
 
 class BacktestEngine:
+    WARMUP_BARS = 30
+
     def run(self, bars: list[dict], strategy: Strategy, starting_balance: float = 10000.0) -> dict:
         balance = starting_balance
         equity_curve = [balance]
         trades: list[dict] = []
         position = None
 
-        for i in range(30, len(bars)):
+        for i in range(self.WARMUP_BARS, len(bars)):
             sample = bars[: i + 1]
             current = bars[i]
             if position:

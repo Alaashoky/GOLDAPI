@@ -18,6 +18,11 @@ class RegimeSelectorTests(unittest.TestCase):
         bars = [{"close": 2000.0, "atr": 10.0, "ema_fast": 2001.0, "ema_slow": 2000.0}]
         self.assertEqual(selector.classify(bars), "HIGH_VOL")
 
+    def test_classifies_ranging(self) -> None:
+        selector = RegimeSelector(trend_threshold=0.01, high_vol_threshold=0.01)
+        bars = [{"close": 2000.0, "atr": 1.0, "ema_fast": 2000.5, "ema_slow": 2000.0}]
+        self.assertEqual(selector.classify(bars), "RANGING")
+
 
 if __name__ == "__main__":
     unittest.main()

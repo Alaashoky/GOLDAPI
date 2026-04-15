@@ -93,6 +93,8 @@ class BotRunner:
             account = self.data.account_info()
             balance = float(account.balance) if account else self.guardrails.account_start_balance
             equity = float(account.equity) if account else balance
+            if account:
+                self.guardrails.account_start_balance = balance
             daily_pnl = equity - balance
             allowed_trade, reason = self.guardrails.can_trade(
                 now,
