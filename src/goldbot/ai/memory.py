@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 import sqlite3
 
@@ -11,6 +12,8 @@ from goldbot.execution.models import AIAnalysis, TradeSignal
 
 
 class TradeMemory:
+    SUMMARY_WINDOW = 1000
+
     def __init__(self, db_path: str) -> None:
         self.db_path = Path(db_path)
         self.available = True
@@ -37,6 +40,7 @@ class TradeMemory:
                 )
         except Exception:
             self.available = False
+            logging.getLogger("goldbot").warning("Memory initialization failed", exc_info=True)
 
     def record_analysis(self, analysis: AIAnalysis, signal: TradeSignal, outcome: str = "PENDING", pnl: float = 0.0) -> None:
         if not self.available:
@@ -71,6 +75,7 @@ class TradeMemory:
                     ),
                 )
         except Exception:
+            logging.getLogger("goldbot").warning("Memory record_analysis failed", exc_info=True)
             return
 
     def update_outcome(self, timestamp: str, outcome: str, pnl: float) -> None:
@@ -83,6 +88,7 @@ class TradeMemory:
                     (outcome, pnl, timestamp),
                 )
         except Exception:
+            logging.getLogger("goldbot").warning("Memory update_outcome failed", exc_info=True)
             return
 
     def recent_trades(self, limit: int = 20) -> list[dict]:
@@ -113,10 +119,11 @@ class TradeMemory:
                 )
             return out
         except Exception:
+            logging.getLogger("goldbot").warning("Memory recent_trades read failed", exc_info=True)
             return []
 
     def performance_summary(self) -> dict:
-        trades = self.recent_trades(limit=1000)
+        trades = self.recent_trades(limit=self.SUMMARY_WINDOW)
         closed = [t for t in trades if t["outcome"] in {"WIN", "LOSS", "CLOSED", "REJECTED"}]
         if not closed:
             return {"trades": 0, "win_rate": 0.0, "avg_pnl": 0.0, "total_pnl": 0.0}

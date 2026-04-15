@@ -103,15 +103,15 @@ def volume_analysis(volumes: list[float], period: int = 20) -> list[float]:
 
 def pivot_points(high: list[float], low: list[float], close: list[float]) -> tuple[list[float], list[float], list[float]]:
     pivots: list[float] = []
-    r1: list[float] = []
-    s1: list[float] = []
+    resistance1: list[float] = []
+    support1: list[float] = []
     for i in range(len(close)):
         ref = i - 1 if i > 0 else i
         p = (high[ref] + low[ref] + close[ref]) / 3
         pivots.append(p)
-        r1.append((2 * p) - low[ref])
-        s1.append((2 * p) - high[ref])
-    return pivots, r1, s1
+        resistance1.append((2 * p) - low[ref])
+        support1.append((2 * p) - high[ref])
+    return pivots, resistance1, support1
 
 
 def append_indicators(

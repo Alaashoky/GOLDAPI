@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 
 import requests
 
@@ -60,6 +61,7 @@ class NewsFeed:
             response.raise_for_status()
             items = response.json() or []
         except Exception:
+            logging.getLogger("goldbot").warning("News feed fetch failed", exc_info=True)
             return []
 
         filtered: list[dict] = []

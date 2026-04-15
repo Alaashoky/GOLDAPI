@@ -36,6 +36,15 @@ class GuardrailsTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("Duplicate", reason)
 
+    def test_blocks_during_cooldown_after_consecutive_losses(self) -> None:
+        now = datetime.now(tz=timezone.utc)
+        self.guardrails.register_trade_outcome(-10.0, now=now)
+        self.guardrails.register_trade_outcome(-5.0, now=now)
+        self.guardrails.register_trade_outcome(-2.0, now=now)
+        ok, reason = self.guardrails.can_trade(now + timedelta(minutes=1), 0, 0.0, "XAUUSD", "SELL")
+        self.assertFalse(ok)
+        self.assertIn("Cooldown", reason)
+
 
 if __name__ == "__main__":
     unittest.main()

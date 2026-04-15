@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import FrameType
 import signal
 import time
 
@@ -27,6 +28,7 @@ class BotRunner:
         self.settings = settings
         self.logger = get_logger()
         self.stop_requested = False
+        self.last_daily_report_date: str | None = None
 
         self.data = MT5DataAdapter(settings.mt5_login, settings.mt5_password, settings.mt5_server)
         self.executor = MT5Executor(enabled=settings.mode in {"demo", "live"}, deviation=settings.execution.deviation)
@@ -50,7 +52,7 @@ class BotRunner:
             account_start_balance=10000.0,
         )
 
-    def _request_stop(self, signum: int, _frame) -> None:
+    def _request_stop(self, signum: int, _frame: FrameType | None) -> None:
         self.logger.info("Shutdown signal received", extra={"extra_data": {"signal": signum}})
         self.stop_requested = True
 
@@ -172,9 +174,12 @@ class BotRunner:
         while not self.stop_requested:
             try:
                 self.run_once()
-                self.alerter.send_daily_performance_report(self.memory.performance_summary())
+                today = datetime.now(tz=timezone.utc).date().isoformat()
+                if self.last_daily_report_date != today:
+                    self.alerter.send_daily_performance_report(self.memory.performance_summary())
+                    self.last_daily_report_date = today
             except Exception as exc:
-                self.logger.exception("Loop iteration failed", extra={"extra_data": {"error": str(exc)}})
+                self.logger.exception("Loop iteration failed")
             if self.stop_requested:
                 break
             time.sleep(self.settings.loop_seconds)

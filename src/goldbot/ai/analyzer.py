@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 import json
+import logging
 
 from goldbot.ai.prompts import SYSTEM_PROMPT, build_market_analysis_prompt
 from goldbot.execution.models import AIAnalysis, Signal
@@ -43,21 +44,19 @@ class MarketAnalyzer:
 
     def _invoke(self, prompt: str) -> str:
         assert self.client is not None
-        response = self.client.responses.create(
+        response = self.client.chat.completions.create(
             model=self.model,
-            input=[
+            messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
         )
-        text = getattr(response, "output_text", "") or ""
-        if text.strip():
-            return text
-        try:
-            return response.output[0].content[0].text  # type: ignore[index,attr-defined]
-        except Exception:
+        if not response.choices:
+            logging.getLogger("goldbot").warning("AI analyzer returned no choices")
             return ""
+        message = response.choices[0].message
+        return str(getattr(message, "content", "") or "")
 
     def analyze(
         self,
