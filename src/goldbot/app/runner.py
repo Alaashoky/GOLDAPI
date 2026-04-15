@@ -12,9 +12,9 @@ from goldbot.ai.memory import TradeMemory
 from goldbot.ai.signal_generator import AISignalGenerator
 from goldbot.config.settings import Settings
 from goldbot.data.multi_timeframe import fetch_multi_timeframe_data
-from goldbot.data.mt5_adapter import MT5DataAdapter
 from goldbot.data.news_feed import NewsFeed
-from goldbot.execution.models import OrderRequest, Signal
+from goldbot.data.mt5_adapter import MT5DataAdapter
+from goldbot.execution.models import AIAnalysis, OrderRequest, OrderResult, Signal, TradeSignal
 from goldbot.execution.mt5_executor import MT5Executor
 from goldbot.ops.alerts import TelegramAlerter
 from goldbot.ops.journal import TradeJournal
@@ -24,6 +24,8 @@ from goldbot.risk.position_sizing import calculate_position_size
 
 
 class BotRunner:
+    _DIVIDER = "═══════════════════════════════════════════════════════"
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.logger = get_logger()
@@ -60,6 +62,68 @@ class BotRunner:
         signal.signal(signal.SIGINT, self._request_stop)
         signal.signal(signal.SIGTERM, self._request_stop)
 
+    def _log_analysis(self, analysis: AIAnalysis, signal_decision: TradeSignal) -> None:
+        support = ", ".join(f"{level:.2f}" for level in analysis.support_levels) or "-"
+        resistance = ", ".join(f"{level:.2f}" for level in analysis.resistance_levels) or "-"
+        risk_factors = analysis.risk_factors or ["None noted"]
+        print(self._DIVIDER)
+        print(f"🧠 AI ANALYSIS — {self.settings.symbol}")
+        print(self._DIVIDER)
+        print(f"📈 Trend:        {analysis.trend}")
+        print(f"💪 Confidence:   {analysis.confidence}%")
+        print(f"📰 News Impact:  {analysis.news_impact}")
+        print()
+        print(f"📊 Support:      {support}")
+        print(f"📊 Resistance:   {resistance}")
+        print()
+        print("⚠️  Risk Factors:")
+        for factor in risk_factors:
+            print(f"   • {factor}")
+        print()
+        print(f"🎯 ACTION:       {signal_decision.signal.value}")
+        print(f"   Entry:        {signal_decision.entry:.2f}" if signal_decision.entry is not None else "   Entry:        -")
+        print(f"   Stop Loss:    {signal_decision.sl:.2f}" if signal_decision.sl is not None else "   Stop Loss:    -")
+        print(f"   Take Profit:  {signal_decision.tp:.2f}" if signal_decision.tp is not None else "   Take Profit:  -")
+        print()
+        print("💬 Reasoning:")
+        print(f"   {analysis.reasoning}")
+        print(self._DIVIDER)
+
+    def _log_trade_executed(
+        self,
+        signal_decision: TradeSignal,
+        lot: float,
+        entry: float,
+        sl: float,
+        tp: float,
+        result: OrderResult,
+    ) -> None:
+        mode_label = "Paper Mode" if self.settings.mode == "paper" else "Real Mode"
+        risk = abs(entry - sl) * lot
+        print(self._DIVIDER)
+        print(f"✅ TRADE EXECUTED ({mode_label})")
+        print(self._DIVIDER)
+        print(f"   Signal:       {signal_decision.signal.value}")
+        print(f"   Entry:        {entry:.2f}")
+        print(f"   Stop Loss:    {sl:.2f}")
+        print(f"   Take Profit:  {tp:.2f}")
+        print(f"   Lot Size:     {lot:.2f}")
+        print(f"   Risk:         ${risk:.2f}")
+        print(f"   Result:       {result.message}")
+        print(self._DIVIDER)
+
+    def _log_hold(self, reason: str) -> None:
+        print(self._DIVIDER)
+        print("⏸️  HOLD — No trade")
+        print(f"   Reason: {reason}")
+        print(self._DIVIDER)
+
+    def _log_blocked(self, reason: str) -> None:
+        print(self._DIVIDER)
+        print("🛡️ BLOCKED by Risk Guardrails")
+        print(f"   Reason: {reason}")
+        print(self._DIVIDER)
+
     def run_once(self) -> None:
         self.logger.info("Run started", extra={"extra_data": {"mode": self.settings.mode, "symbol": self.settings.symbol}})
         self.data.initialize()
@@ -91,9 +155,11 @@ class BotRunner:
                 performance_summary=performance,
             )
             signal_decision = self.signal_generator.generate(analysis)
+            self._log_analysis(analysis, signal_decision)
             self.alerter.send_signal_analysis(self.settings.symbol, analysis, signal_decision)
 
             if signal_decision.signal == Signal.HOLD:
+                self._log_hold(signal_decision.reasoning)
                 self.logger.info("AI returned HOLD", extra={"extra_data": {"reason": signal_decision.reasoning}})
                 self.memory.record_analysis(analysis, signal_decision, outcome="HOLD", pnl=0.0)
                 return
@@ -113,6 +179,7 @@ class BotRunner:
                 direction=signal_decision.signal.value,
             )
             if not allowed_trade:
+                self._log_blocked(reason)
                 self.logger.warning("Guardrail blocked signal", extra={"extra_data": {"reason": reason}})
                 self.memory.record_analysis(analysis, signal_decision, outcome="BLOCKED", pnl=0.0)
                 return
@@ -139,6 +206,7 @@ class BotRunner:
                 comment="goldbot:ai-first",
             )
             result = self.executor.place_order(request)
+            self._log_trade_executed(signal_decision, lot, entry, sl, tp, result)
             now = datetime.now(tz=timezone.utc)
             self.guardrails.register_entry(now, self.settings.symbol, signal_decision.signal.value)
 

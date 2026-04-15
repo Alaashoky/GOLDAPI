@@ -30,6 +30,11 @@ class SettingsTests(unittest.TestCase):
         finally:
             os.unlink(defaults_path)
 
+    def test_defaults_yaml_ai_timeout_is_60_seconds(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+        self.assertEqual(settings.ai.timeout_seconds, 60)
+
 
 if __name__ == "__main__":
     unittest.main()
