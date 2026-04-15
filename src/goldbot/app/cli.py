@@ -1,4 +1,4 @@
-"""CLI entrypoint: run, paper, backtest."""
+"""CLI entrypoint for paper/demo/live/backtest modes."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 from goldbot.app.runner import BotRunner
 from goldbot.backtest.engine import BacktestEngine
 from goldbot.config.settings import load_settings
-from goldbot.data.mt5_data import append_indicators
+from goldbot.data.indicators import append_indicators
 from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 
 
@@ -35,7 +35,14 @@ def main() -> None:
     run_cmd = sub.add_parser("run")
     run_cmd.add_argument("--loop", action="store_true")
 
-    sub.add_parser("paper")
+    paper_cmd = sub.add_parser("paper")
+    paper_cmd.add_argument("--loop", action="store_true")
+
+    demo_cmd = sub.add_parser("demo")
+    demo_cmd.add_argument("--loop", action="store_true")
+
+    live_cmd = sub.add_parser("live")
+    live_cmd.add_argument("--loop", action="store_true")
 
     backtest_cmd = sub.add_parser("backtest")
     backtest_cmd.add_argument("--csv", type=Path, required=True, help="OHLC CSV with columns: time,open,high,low,close")
@@ -43,10 +50,13 @@ def main() -> None:
     args = parser.parse_args()
     settings = load_settings()
 
-    if args.cmd == "paper":
-        settings.mode = "paper"
+    if args.cmd in {"paper", "demo", "live"}:
+        settings.mode = args.cmd
         runner = BotRunner(settings)
-        runner.run_once()
+        if args.loop:
+            runner.run_loop()
+        else:
+            runner.run_once()
         return
 
     if args.cmd == "run":
@@ -59,19 +69,10 @@ def main() -> None:
 
     if args.cmd == "backtest":
         bars = _load_csv_bars(args.csv)
-        bars = append_indicators(
-            bars,
-            ema_fast=settings.strategy.ema_fast,
-            ema_slow=settings.strategy.ema_slow,
-            rsi_period=settings.strategy.rsi_period,
-            atr_period=settings.strategy.atr_period,
-            bb_period=settings.strategy.bb_period,
-            bb_std=settings.strategy.bb_std,
-        )
+        bars = append_indicators(bars)
         engine = BacktestEngine()
         result = engine.run(bars, TrendEMAPullbackStrategy())
         print(json.dumps(result["metrics"], indent=2))
-        return
 
 
 if __name__ == "__main__":

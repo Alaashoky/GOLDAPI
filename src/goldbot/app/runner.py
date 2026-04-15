@@ -1,51 +1,48 @@
-"""Main bot runner for single-run and loop modes."""
+"""Main AI-first bot runner for single-run and loop modes."""
 
 from __future__ import annotations
 
-from dataclasses import asdict
 from datetime import datetime, timezone
+from types import FrameType
+import signal
 import time
 
-from goldbot.ai.openai_filter import OpenAIFilter
+from goldbot.ai.analyzer import MarketAnalyzer
+from goldbot.ai.memory import TradeMemory
+from goldbot.ai.signal_generator import AISignalGenerator
 from goldbot.config.settings import Settings
-from goldbot.data.mt5_data import MT5DataAdapter, append_indicators
+from goldbot.data.multi_timeframe import fetch_multi_timeframe_data
+from goldbot.data.mt5_adapter import MT5DataAdapter
+from goldbot.data.news_feed import NewsFeed
+from goldbot.execution.models import OrderRequest, Signal
 from goldbot.execution.mt5_executor import MT5Executor
-from goldbot.execution.order_models import OrderRequest, Signal
 from goldbot.ops.alerts import TelegramAlerter
 from goldbot.ops.journal import TradeJournal
 from goldbot.ops.logger import get_logger
+from goldbot.risk.guardrails import RiskGuardrails
 from goldbot.risk.position_sizing import calculate_position_size
-from goldbot.risk.risk_guardrails import RiskGuardrails
-from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
-from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
-from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
-from goldbot.strategies.regime_selector import RegimeSelector
-from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 
 
 class BotRunner:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.logger = get_logger()
+        self.stop_requested = False
+        self.last_daily_report_date: str | None = None
+
         self.data = MT5DataAdapter(settings.mt5_login, settings.mt5_password, settings.mt5_server)
         self.executor = MT5Executor(enabled=settings.mode in {"demo", "live"}, deviation=settings.execution.deviation)
-        self.ai = OpenAIFilter(
+        self.analyzer = MarketAnalyzer(
             api_key=settings.openai_api_key,
             model=settings.ai.model,
-            enabled=settings.ai.enabled,
             timeout_seconds=settings.ai.timeout_seconds,
             retries=settings.ai.retries,
-            fail_behavior=settings.ai.fail_behavior,
         )
+        self.signal_generator = AISignalGenerator()
+        self.news_feed = NewsFeed(settings.finnhub_api_key)
+        self.memory = TradeMemory(settings.memory_db_path)
         self.alerter = TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
         self.journal = TradeJournal(settings.journal.csv_path, settings.journal.sqlite_path)
-        self.regime_selector = RegimeSelector()
-        self.strategies = {
-            "trend_ema_pullback": TrendEMAPullbackStrategy(),
-            "breakout_london_ny": BreakoutLondonNYStrategy(settings.strategy.breakout_lookback),
-            "atr_vol_expansion": ATRVolExpansionStrategy(settings.strategy.atr_expansion_mult),
-            "mean_reversion_rsi_bb": MeanReversionRSIBBStrategy(),
-        }
         self.guardrails = RiskGuardrails(
             max_daily_loss_pct=settings.risk.max_daily_loss_pct,
             max_open_trades=settings.risk.max_concurrent_positions,
@@ -55,40 +52,52 @@ class BotRunner:
             account_start_balance=10000.0,
         )
 
-    def _market_summary(self, last: dict, regime: str) -> str:
-        return (
-            f"regime={regime}, close={last['close']:.3f}, ema_fast={last['ema_fast']:.3f}, "
-            f"ema_slow={last['ema_slow']:.3f}, rsi={last['rsi']:.2f}, atr={last['atr']:.3f}"
-        )
+    def _request_stop(self, signum: int, _frame: FrameType | None) -> None:
+        self.logger.info("Shutdown signal received", extra={"extra_data": {"signal": signum}})
+        self.stop_requested = True
+
+    def _register_signal_handlers(self) -> None:
+        signal.signal(signal.SIGINT, self._request_stop)
+        signal.signal(signal.SIGTERM, self._request_stop)
 
     def run_once(self) -> None:
-        mode = self.settings.mode
-        self.logger.warning("Mode is %s (use demo before live)", mode)
-
+        self.logger.info("Run started", extra={"extra_data": {"mode": self.settings.mode, "symbol": self.settings.symbol}})
+        self.data.initialize()
         try:
-            self.data.initialize()
             self.executor.bind_mt5(self.data.mt5)
             self.data.ensure_symbol(self.settings.symbol)
-            bars = self.data.get_rates(self.settings.symbol, self.settings.timeframe, self.settings.bars)
-            bars = append_indicators(
-                bars,
-                ema_fast=self.settings.strategy.ema_fast,
-                ema_slow=self.settings.strategy.ema_slow,
-                rsi_period=self.settings.strategy.rsi_period,
-                atr_period=self.settings.strategy.atr_period,
-                bb_period=self.settings.strategy.bb_period,
-                bb_std=self.settings.strategy.bb_std,
+
+            self.logger.info("Fetching multi-timeframe data")
+            market_data = fetch_multi_timeframe_data(
+                adapter=self.data,
+                symbol=self.settings.symbol,
+                timeframes=self.settings.timeframes,
+                bars=self.settings.ai.analysis_bars,
             )
-            regime = self.regime_selector.classify(bars)
-            allowed = self.regime_selector.allowed_strategies(regime)
-            decisions = [self.strategies[name].evaluate(bars) for name in allowed if name in self.strategies]
-            decisions = [d for d in decisions if d.signal != Signal.HOLD]
-            if not decisions:
-                self.logger.info("No strategy signal", extra={"extra_data": {"regime": regime}})
+
+            self.logger.info("Fetching economic news")
+            news = self.news_feed.fetch(limit=15)
+
+            self.logger.info("Loading memory context")
+            recent_history = self.memory.recent_trades(limit=20)
+            performance = self.memory.performance_summary()
+
+            self.logger.info("Requesting AI analysis")
+            analysis = self.analyzer.analyze(
+                symbol=self.settings.symbol,
+                timeframes=market_data,
+                news=news,
+                trade_history=recent_history,
+                performance_summary=performance,
+            )
+            signal_decision = self.signal_generator.generate(analysis)
+            self.alerter.send_signal_analysis(self.settings.symbol, analysis, signal_decision)
+
+            if signal_decision.signal == Signal.HOLD:
+                self.logger.info("AI returned HOLD", extra={"extra_data": {"reason": signal_decision.reasoning}})
+                self.memory.record_analysis(analysis, signal_decision, outcome="HOLD", pnl=0.0)
                 return
 
-            decision = max(decisions, key=lambda d: d.confidence)
-            now = datetime.now(tz=timezone.utc)
             positions = self.data.open_positions(self.settings.symbol)
             account = self.data.account_info()
             balance = float(account.balance) if account else self.guardrails.account_start_balance
@@ -97,65 +106,81 @@ class BotRunner:
                 self.guardrails.account_start_balance = balance
             daily_pnl = equity - balance
             allowed_trade, reason = self.guardrails.can_trade(
-                now,
+                now=datetime.now(tz=timezone.utc),
                 open_positions=len(positions),
                 daily_realized_pnl=daily_pnl,
                 symbol=self.settings.symbol,
-                direction=decision.signal.value,
+                direction=signal_decision.signal.value,
             )
             if not allowed_trade:
-                self.logger.warning("Risk guardrail blocked", extra={"extra_data": {"reason": reason}})
-                return
-
-            summary = self._market_summary(bars[-1], regime)
-            ai_result = self.ai.analyze(summary, decision)
-            if ai_result.decision.value != "APPROVE":
-                self.logger.warning("AI rejected signal", extra={"extra_data": asdict(ai_result)})
+                self.logger.warning("Guardrail blocked signal", extra={"extra_data": {"reason": reason}})
+                self.memory.record_analysis(analysis, signal_decision, outcome="BLOCKED", pnl=0.0)
                 return
 
             tick = self.data.get_tick(self.settings.symbol)
-            entry = float(tick.ask if decision.signal == Signal.BUY else tick.bid)
-            sl = entry - decision.sl_basis if decision.signal == Signal.BUY else entry + decision.sl_basis
-            tp = entry + decision.tp_basis if decision.signal == Signal.BUY else entry - decision.tp_basis
+            entry = float(signal_decision.entry or (tick.ask if signal_decision.signal == Signal.BUY else tick.bid))
+            sl = float(signal_decision.sl or 0.0)
+            tp = float(signal_decision.tp or 0.0)
             lot = calculate_position_size(
                 account_balance=balance,
                 risk_per_trade_pct=min(self.settings.risk.risk_per_trade_pct, self.settings.risk.max_risk_per_trade_pct),
                 entry_price=entry,
                 sl_price=sl,
             )
+
             request = OrderRequest(
                 symbol=self.settings.symbol,
-                signal=decision.signal,
+                signal=signal_decision.signal,
                 lot=lot,
                 price=entry,
                 sl=sl,
                 tp=tp,
                 deviation=self.settings.execution.deviation,
-                comment=f"goldbot:{decision.strategy}",
+                comment="goldbot:ai-first",
             )
             result = self.executor.place_order(request)
-            self.guardrails.register_entry(now, self.settings.symbol, decision.signal.value)
+            now = datetime.now(tz=timezone.utc)
+            self.guardrails.register_entry(now, self.settings.symbol, signal_decision.signal.value)
 
-            row = {
-                "timestamp": now.isoformat(),
-                "strategy": decision.strategy,
-                "regime": regime,
-                "signal": decision.signal.value,
-                "entry": entry,
-                "sl": sl,
-                "tp": tp,
-                "lot": lot,
-                "outcome": "PLACED" if result.ok else "REJECTED",
-                "pnl": 0.0,
-                "reason": result.message,
-            }
-            self.journal.record(row)
-            self.logger.info("Order attempt", extra={"extra_data": row})
-            self.alerter.send(f"{self.settings.symbol} {decision.signal.value} {lot} | {result.message}")
+            self.journal.record(
+                {
+                    "timestamp": now.isoformat(),
+                    "strategy": "ai_first",
+                    "regime": analysis.trend,
+                    "signal": signal_decision.signal.value,
+                    "entry": entry,
+                    "sl": sl,
+                    "tp": tp,
+                    "lot": lot,
+                    "outcome": "PLACED" if result.ok else "REJECTED",
+                    "pnl": 0.0,
+                    "reason": result.message,
+                }
+            )
+            self.memory.record_analysis(
+                analysis,
+                signal_decision,
+                outcome="PLACED" if result.ok else "REJECTED",
+                pnl=0.0,
+            )
+            self.alerter.send_execution_confirmation(self.settings.symbol, signal_decision, lot, result)
+            self.logger.info("Run complete", extra={"extra_data": {"ok": result.ok, "message": result.message}})
         finally:
             self.data.shutdown()
 
     def run_loop(self) -> None:
-        while True:
-            self.run_once()
+        self._register_signal_handlers()
+        self.logger.info("Starting loop", extra={"extra_data": {"interval_seconds": self.settings.loop_seconds}})
+        while not self.stop_requested:
+            try:
+                self.run_once()
+                today = datetime.now(tz=timezone.utc).date().isoformat()
+                if self.last_daily_report_date != today:
+                    self.alerter.send_daily_performance_report(self.memory.performance_summary())
+                    self.last_daily_report_date = today
+            except Exception as exc:
+                self.logger.exception("Loop iteration failed")
+            if self.stop_requested:
+                break
             time.sleep(self.settings.loop_seconds)
+        self.logger.info("Loop stopped gracefully")

@@ -1,8 +1,10 @@
 mode: paper
 symbol: XAUUSD
-timeframe: M15
-bars: 300
 loop_seconds: 60
+timeframes:
+  - M15
+  - H1
+  - H4
 risk:
   risk_per_trade_pct: 0.5
   max_risk_per_trade_pct: 1.0
@@ -11,21 +13,11 @@ risk:
   max_consecutive_losses: 3
   cooldown_minutes: 60
   duplicate_window_seconds: 120
-strategy:
-  ema_fast: 20
-  ema_slow: 50
-  rsi_period: 14
-  atr_period: 14
-  bb_period: 20
-  bb_std: 2.0
-  breakout_lookback: 24
-  atr_expansion_mult: 1.2
 ai:
-  enabled: true
-  model: gpt-4o-mini
-  timeout_seconds: 8
+  model: gpt-4o
+  analysis_bars: 50
+  timeout_seconds: 12
   retries: 1
-  fail_behavior: reject
 execution:
   deviation: 20
   sl_atr_mult: 1.5
@@ -33,3 +25,5 @@ execution:
 journal:
   csv_path: trades.csv
   sqlite_path: ""
+memory:
+  db_path: memory.db
