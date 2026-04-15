@@ -6,7 +6,7 @@ from typing import Any
 
 
 def _to_python(val: Any) -> Any:
-    """Convert numpy-like scalar values to native Python types."""
+    """Convert numpy-like scalars (e.g., int64/float64 via `.item()`) for JSON safety."""
     if hasattr(val, "item"):
         return val.item()
     return val
