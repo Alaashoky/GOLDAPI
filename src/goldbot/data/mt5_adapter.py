@@ -5,6 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 
+def _to_python(val: Any) -> Any:
+    """Convert numpy-like scalar values to native Python types."""
+    if hasattr(val, "item"):
+        return val.item()
+    return val
+
+
 class MT5DataAdapter:
     def __init__(self, login: int | None, password: str, server: str) -> None:
         self.login = login
@@ -45,8 +52,8 @@ class MT5DataAdapter:
         dtype = getattr(rates, "dtype", None)
         names = getattr(dtype, "names", None) if dtype is not None else None
         if names:
-            return [dict(zip(names, row)) for row in rates]
-        return [dict(row) for row in rates]
+            return [{k: _to_python(v) for k, v in zip(names, row)} for row in rates]
+        return [{k: _to_python(v) for k, v in dict(row).items()} for row in rates]
 
     def get_tick(self, symbol: str) -> Any:
         assert self.mt5 is not None
