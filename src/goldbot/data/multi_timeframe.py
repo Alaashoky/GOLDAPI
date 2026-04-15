@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-
 from goldbot.data.indicators import append_indicators
 from goldbot.data.mt5_adapter import MT5DataAdapter
 
@@ -25,17 +23,14 @@ def fetch_multi_timeframe_data(
     timeframes: list[str],
     bars: int,
 ) -> dict[str, dict]:
-    def _fetch(tf: str) -> tuple[str, list[dict]]:
-        raw = adapter.get_rates(symbol, tf, bars)
-        enriched = append_indicators(raw)
-        return tf, enriched
-
     output: dict[str, dict] = {}
-    with ThreadPoolExecutor(max_workers=max(1, len(timeframes))) as pool:
-        for timeframe, series in pool.map(_fetch, timeframes):
-            output[timeframe] = {
-                "timeframe": timeframe,
-                "trend": _trend_from_last_bar(series[-1]),
-                "candles": series,
-            }
+    for timeframe in timeframes:
+        raw = adapter.get_rates(symbol, timeframe, bars)
+        enriched = append_indicators(raw)
+        trend = _trend_from_last_bar(enriched[-1])
+        output[timeframe] = {
+            "timeframe": timeframe,
+            "trend": trend,
+            "candles": enriched,
+        }
     return output

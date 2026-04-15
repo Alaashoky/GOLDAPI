@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 from typing import Any
 
+from dotenv import load_dotenv
 import yaml
 
 
@@ -82,6 +83,7 @@ def _parse_timeframes(value: str | list[str]) -> list[str]:
 
 
 def load_settings(defaults_path: str | None = None) -> Settings:
+    load_dotenv()
     path = Path(defaults_path or Path(__file__).with_name("defaults.yaml"))
     defaults = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 

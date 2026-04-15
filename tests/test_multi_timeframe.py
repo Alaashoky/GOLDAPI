@@ -8,8 +8,12 @@ from goldbot.data.multi_timeframe import fetch_multi_timeframe_data
 
 
 class FakeAdapter:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
     def get_rates(self, symbol: str, timeframe: str, bars: int) -> list[dict]:
         _ = symbol, bars
+        self.calls.append(timeframe)
         base = 2300.0 if timeframe == "M15" else 2400.0
         return [
             {"open": base - 1, "high": base + 2, "low": base - 2, "close": base + i, "tick_volume": 100 + i}
@@ -19,10 +23,12 @@ class FakeAdapter:
 
 class MultiTimeframeTests(unittest.TestCase):
     def test_fetches_all_timeframes(self) -> None:
-        assembled = fetch_multi_timeframe_data(FakeAdapter(), "XAUUSD", ["M15", "H1"], 5)
+        adapter = FakeAdapter()
+        assembled = fetch_multi_timeframe_data(adapter, "XAUUSD", ["M15", "H1"], 5)
         self.assertEqual(set(assembled.keys()), {"M15", "H1"})
         self.assertIn("trend", assembled["M15"])
         self.assertEqual(len(assembled["H1"]["candles"]), 5)
+        self.assertEqual(adapter.calls, ["M15", "H1"])
 
 
 if __name__ == "__main__":

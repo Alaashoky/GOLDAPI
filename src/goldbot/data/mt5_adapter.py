@@ -42,7 +42,10 @@ class MT5DataAdapter:
         rates = self.mt5.copy_rates_from_pos(symbol, tf, 0, bars)
         if rates is None or len(rates) == 0:
             raise RuntimeError("No bars received from MT5")
-        return [dict(r) for r in rates]
+        names = getattr(getattr(rates, "dtype", None), "names", None)
+        if names:
+            return [dict(zip(names, row)) for row in rates]
+        return [dict(row) if not isinstance(row, dict) else dict(row) for row in rates]
 
     def get_tick(self, symbol: str) -> Any:
         assert self.mt5 is not None
