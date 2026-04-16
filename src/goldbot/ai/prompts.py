@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import json
 
-SYSTEM_PROMPT = (
-    "You are a professional XAUUSD trade evaluator and risk manager. "
-    "A trading strategy has generated a signal. Your job is to EVALUATE whether this signal "
-    "should be APPROVED or REJECTED based on: market context, news impact, trade history, "
-    "and overall risk assessment. "
-    "You are NOT generating the signal — you are judging its quality. "
+FILTER_SYSTEM_PROMPT = (
+    "You are an expert XAUUSD trade filter specializing in Smart Money Concepts (SMC) and Liquidity Sweep setups. "
+    "You are running in PAPER MODE — no real money is at risk. Your job is to evaluate trade signals and decide "
+    "APPROVE or REJECT.\n\n"
+    "IMPORTANT GUIDELINES:\n"
+    "1. You are in PAPER MODE — be more willing to approve trades for learning and data collection. "
+    "Only reject if the setup is clearly invalid or dangerous.\n"
+    "2. If trade history is empty or has no wins, that is NORMAL for a new bot — do NOT use this as a reason to reject.\n"
+    "3. Focus on the QUALITY of the liquidity sweep: Was there a clear sweep beyond a swing high/low? "
+    "Did price reject back? Is there a confirmation candle?\n"
+    "4. News impact should add caution but NOT automatically reject. High impact news means tighter SL, not no trade.\n"
+    "5. Conflicting timeframe trends are acceptable for liquidity sweeps — sweeps often happen AGAINST the higher timeframe trend.\n"
+    "6. A good liquidity sweep setup should be APPROVED even with some risk factors.\n\n"
     "You MUST respond with ONLY a valid JSON object, no markdown, no explanation, no code fences. "
     "JSON schema: "
-    '{"decision":"APPROVE|REJECT",'
-    '"confidence":0-100,'
-    '"reasoning":string,'
-    '"risk_factors":[string],'
-    '"news_impact":"high|medium|low|none",'
-    '"suggested_sl_adjustment":number|null,'
-    '"suggested_tp_adjustment":number|null}'
+    '{"decision":"APPROVE|REJECT","confidence":0-100,"reasoning":"...",'
+    '"news_impact":"high|medium|low|none","risk_factors":["..."],'
+    '"suggested_sl":number|null,"suggested_tp":number|null}'
 )
+SYSTEM_PROMPT = FILTER_SYSTEM_PROMPT
 
 MARKET_ANALYSIS_SYSTEM_PROMPT = (
     "You are a professional XAUUSD market analyst and risk-aware intraday trader. "
@@ -139,17 +143,24 @@ def build_filter_prompt(
     """Build prompt for AI to evaluate a strategy signal."""
     strategy_signals = candidate.get("all_strategy_signals", [])
     strategy_consensus: dict[str, int | bool | list[dict]] | None = None
+    consensus_note = "No strategy consensus available."
     if strategy_signals:
         buy_count = sum(1 for s in strategy_signals if s.get("signal") == "BUY")
         sell_count = sum(1 for s in strategy_signals if s.get("signal") == "SELL")
         hold_count = sum(1 for s in strategy_signals if s.get("signal") == "HOLD")
+        single_strategy_mode = len(strategy_signals) == 1
         strategy_consensus = {
             "buy_count": buy_count,
             "sell_count": sell_count,
             "hold_count": hold_count,
             "conflicting": buy_count > 0 and sell_count > 0,
+            "mode": "single_strategy" if single_strategy_mode else "multi_strategy",
             "signals": strategy_signals,
         }
+        if single_strategy_mode:
+            consensus_note = "Single strategy mode — only Liquidity Sweep strategy is active."
+        else:
+            consensus_note = "Multi-strategy mode — consider consensus and conflicts across strategy signals."
 
     market_context = {}
     for tf, frame in timeframes.items():
@@ -176,21 +187,25 @@ def build_filter_prompt(
 
     payload = {
         "symbol": symbol,
+        "mode": "PAPER",
+        "mode_note": "Paper mode — no real money. Approve more freely for learning.",
         "strategy_signal": candidate,
         "strategy_consensus": strategy_consensus,
+        "strategy_consensus_note": consensus_note,
         "market_context": market_context,
         "news": news,
         "recent_trade_history": trade_history,
         "performance_summary": performance_summary,
     }
+    if not trade_history:
+        payload["trade_history_note"] = "This is a new bot with no trade history yet. Do not penalize for this."
     return (
         f"A trading strategy generated the following signal for {symbol}. "
         "Evaluate whether to APPROVE or REJECT this trade. "
         "You have the last 10 candles per timeframe plus a statistical summary of the last 100 candles "
         "including Fibonacci levels, swing high/low, trend direction, and key indicators. "
-        "Consider: trend alignment across timeframes, news impact, recent trade performance, "
-        "Fibonacci levels, support/resistance zones, risk factors, "
-        "AND the consensus across all strategy signals — if strategies conflict, be extra cautious. "
-        "Only APPROVE if the setup is solid and the risk/reward is favorable.\n"
+        "This is PAPER MODE, so prioritize learning/data collection and reject only clearly invalid setups. "
+        "Focus primarily on liquidity sweep quality (clear sweep, rejection, and confirmation). "
+        "News should increase caution but should not be an automatic blocker.\n"
         f"SIGNAL_CONTEXT={json.dumps(payload, ensure_ascii=False)}"
     )

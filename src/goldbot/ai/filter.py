@@ -122,8 +122,12 @@ class AITradeFilter:
                     decision = "REJECT"
 
                 confidence = int(max(0, min(100, int(parsed.get("confidence", 0)))))
-                sl = parsed.get("suggested_sl_adjustment")
-                tp = parsed.get("suggested_tp_adjustment")
+                sl = parsed.get("suggested_sl")
+                tp = parsed.get("suggested_tp")
+                if sl is None:
+                    sl = parsed.get("suggested_sl_adjustment")
+                if tp is None:
+                    tp = parsed.get("suggested_tp_adjustment")
                 return FilterResult(
                     decision=decision,
                     confidence=confidence,
