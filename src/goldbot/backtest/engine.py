@@ -4,67 +4,154 @@ from __future__ import annotations
 
 from goldbot.backtest.metrics import calculate_metrics
 from goldbot.execution.order_models import Signal
+from goldbot.risk.position_sizing import calculate_position_size
 from goldbot.strategies.base import Strategy
 
 
 class BacktestEngine:
     WARMUP_BARS = 30
 
-    def run(self, bars: list[dict], strategy: Strategy, starting_balance: float = 10000.0) -> dict:
+    def _pnl(self, side: str, entry: float, exit_price: float, lot: float, contract_size: float) -> float:
+        if side == Signal.BUY.value:
+            return (exit_price - entry) * lot * contract_size
+        return (entry - exit_price) * lot * contract_size
+
+    def run(
+        self,
+        bars: list[dict],
+        strategy: Strategy,
+        starting_balance: float = 10000.0,
+        risk_per_trade_pct: float = 0.5,
+        entry_model: str = "next_open",
+        spread_points: float = 0.0,
+        point_value: float = 0.0,
+        contract_size: float = 100.0,
+        volume_min: float = 0.01,
+        volume_step: float = 0.01,
+        volume_max: float = 100.0,
+    ) -> dict:
         balance = starting_balance
         equity_curve = [balance]
         trades: list[dict] = []
         position = None
+        pending_entry = None
+        spread_price = spread_points * point_value
 
         for i in range(self.WARMUP_BARS, len(bars)):
             sample = bars[: i + 1]
             current = bars[i]
-            if position:
-                if position["side"] == "BUY":
-                    if current["low"] <= position["sl"]:
-                        pnl = (position["sl"] - position["entry"]) * position["lot"] * 100
-                        balance += pnl
-                        trades.append({"pnl": pnl, "exit": position["sl"], "reason": "SL"})
-                        position = None
-                    elif current["high"] >= position["tp"]:
-                        pnl = (position["tp"] - position["entry"]) * position["lot"] * 100
-                        balance += pnl
-                        trades.append({"pnl": pnl, "exit": position["tp"], "reason": "TP"})
-                        position = None
+
+            if pending_entry and position is None:
+                raw_open = float(current["open"])
+                entry = raw_open + spread_price if pending_entry["signal"] == Signal.BUY.value else raw_open - spread_price
+                sl_distance = float(pending_entry["sl_distance"])
+                tp_distance = float(pending_entry["tp_distance"])
+                if pending_entry["signal"] == Signal.BUY.value:
+                    sl = entry - sl_distance
+                    tp = entry + tp_distance
                 else:
-                    if current["high"] >= position["sl"]:
-                        pnl = (position["entry"] - position["sl"]) * position["lot"] * 100
-                        balance += pnl
-                        trades.append({"pnl": pnl, "exit": position["sl"], "reason": "SL"})
-                        position = None
-                    elif current["low"] <= position["tp"]:
-                        pnl = (position["entry"] - position["tp"]) * position["lot"] * 100
-                        balance += pnl
-                        trades.append({"pnl": pnl, "exit": position["tp"], "reason": "TP"})
-                        position = None
+                    sl = entry + sl_distance
+                    tp = entry - tp_distance
+                lot = calculate_position_size(
+                    account_balance=balance,
+                    risk_per_trade_pct=risk_per_trade_pct,
+                    entry_price=entry,
+                    sl_price=sl,
+                    contract_size=contract_size,
+                    volume_min=volume_min,
+                    volume_step=volume_step,
+                    volume_max=volume_max,
+                )
+                if lot > 0:
+                    position = {
+                        "side": pending_entry["signal"],
+                        "entry": entry,
+                        "sl": sl,
+                        "tp": tp,
+                        "lot": lot,
+                        "entry_index": i,
+                        "signal_index": pending_entry["signal_index"],
+                    }
+                pending_entry = None
+
+            if position:
+                side = position["side"]
+                sl_hit = float(current["low"]) <= position["sl"] if side == Signal.BUY.value else float(current["high"]) >= position["sl"]
+                tp_hit = float(current["high"]) >= position["tp"] if side == Signal.BUY.value else float(current["low"]) <= position["tp"]
+                if sl_hit or tp_hit:
+                    # Conservative tie-breaker: if both touched in same candle, assume SL first.
+                    exit_price = position["sl"] if sl_hit else position["tp"]
+                    outcome = "SL" if sl_hit else "TP"
+                    pnl = self._pnl(side, position["entry"], exit_price, position["lot"], contract_size)
+                    risk_amount = abs(position["entry"] - position["sl"]) * position["lot"] * contract_size
+                    r_multiple = (pnl / risk_amount) if risk_amount > 0 else 0.0
+                    balance += pnl
+                    trades.append(
+                        {
+                            "signal": side,
+                            "entry": position["entry"],
+                            "sl": position["sl"],
+                            "tp": position["tp"],
+                            "exit": exit_price,
+                            "lot": position["lot"],
+                            "pnl": pnl,
+                            "reason": outcome,
+                            "r": r_multiple,
+                            "entry_index": position["entry_index"],
+                            "exit_index": i,
+                            "signal_index": position["signal_index"],
+                            "entry_time": bars[position["entry_index"]].get("time"),
+                            "exit_time": current.get("time"),
+                        }
+                    )
+                    position = None
 
             if position is None:
                 decision = strategy.evaluate(sample)
                 if decision.signal in {Signal.BUY, Signal.SELL}:
-                    entry = float(current["close"])
-                    if decision.signal == Signal.BUY:
-                        sl = entry - decision.sl_basis
-                        tp = entry + decision.tp_basis
+                    if entry_model == "next_open":
+                        if i + 1 < len(bars):
+                            pending_entry = {
+                                "signal": decision.signal.value,
+                                "sl_distance": decision.sl_basis,
+                                "tp_distance": decision.tp_basis,
+                                "signal_index": i,
+                            }
                     else:
-                        sl = entry + decision.sl_basis
-                        tp = entry - decision.tp_basis
-                    position = {
-                        "side": decision.signal.value,
-                        "entry": entry,
-                        "sl": sl,
-                        "tp": tp,
-                        "lot": 0.1,
-                    }
+                        entry = float(current["close"])
+                        entry += spread_price if decision.signal == Signal.BUY else -spread_price
+                        if decision.signal == Signal.BUY:
+                            sl = entry - decision.sl_basis
+                            tp = entry + decision.tp_basis
+                        else:
+                            sl = entry + decision.sl_basis
+                            tp = entry - decision.tp_basis
+                        lot = calculate_position_size(
+                            account_balance=balance,
+                            risk_per_trade_pct=risk_per_trade_pct,
+                            entry_price=entry,
+                            sl_price=sl,
+                            contract_size=contract_size,
+                            volume_min=volume_min,
+                            volume_step=volume_step,
+                            volume_max=volume_max,
+                        )
+                        if lot > 0:
+                            position = {
+                                "side": decision.signal.value,
+                                "entry": entry,
+                                "sl": sl,
+                                "tp": tp,
+                                "lot": lot,
+                                "entry_index": i,
+                                "signal_index": i,
+                            }
             equity_curve.append(balance)
 
         return {
             "starting_balance": starting_balance,
             "ending_balance": balance,
+            "total_pnl": balance - starting_balance,
             "metrics": calculate_metrics(trades, equity_curve),
             "trades": trades,
         }

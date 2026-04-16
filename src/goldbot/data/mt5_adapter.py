@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 
@@ -49,6 +50,19 @@ class MT5DataAdapter:
         rates = self.mt5.copy_rates_from_pos(symbol, tf, 0, bars)
         if rates is None or len(rates) == 0:
             raise RuntimeError("No bars received from MT5")
+        return self._normalize_rates(rates)
+
+    def get_rates_range(self, symbol: str, timeframe: str, start: datetime, end: datetime) -> list[dict]:
+        assert self.mt5 is not None
+        tf = getattr(self.mt5, f"TIMEFRAME_{timeframe}", None)
+        if tf is None:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        rates = self.mt5.copy_rates_range(symbol, tf, start, end)
+        if rates is None or len(rates) == 0:
+            raise RuntimeError("No bars received from MT5 for requested range")
+        return self._normalize_rates(rates)
+
+    def _normalize_rates(self, rates: Any) -> list[dict]:
         dtype = getattr(rates, "dtype", None)
         names = getattr(dtype, "names", None) if dtype is not None else None
         if names:
@@ -65,6 +79,10 @@ class MT5DataAdapter:
     def account_info(self) -> Any:
         assert self.mt5 is not None
         return self.mt5.account_info()
+
+    def symbol_info(self, symbol: str) -> Any:
+        assert self.mt5 is not None
+        return self.mt5.symbol_info(symbol)
 
     def open_positions(self, symbol: str | None = None) -> list[Any]:
         assert self.mt5 is not None
