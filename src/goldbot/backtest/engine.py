@@ -11,7 +11,6 @@ from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 
 class BacktestEngine:
     WARMUP_BARS = 30
-    TP_TO_SL_RATIO = 2.0
 
     def _apply_h1_trend_filter(self, signal: Signal, strategy: Strategy, h1_trend: str | None) -> bool:
         if strategy.name != LiquiditySweepStrategy.name:
@@ -42,6 +41,7 @@ class BacktestEngine:
         volume_step: float = 0.01,
         volume_max: float = 100.0,
         h1_trends: list[str] | None = None,
+        tp_r_multiple: float = 2.0,
     ) -> dict:
         balance = starting_balance
         equity_curve = [balance]
@@ -58,13 +58,14 @@ class BacktestEngine:
                 raw_open = float(current["open"])
                 entry = raw_open + spread_price if pending_entry["signal"] == Signal.BUY.value else raw_open - spread_price
                 sl_distance = float(pending_entry["sl_distance"])
-                tp_distance = sl_distance * self.TP_TO_SL_RATIO
                 if pending_entry["signal"] == Signal.BUY.value:
                     sl = entry - sl_distance
-                    tp = entry + tp_distance
+                    r_distance = abs(entry - sl)
+                    tp = entry + (tp_r_multiple * r_distance)
                 else:
                     sl = entry + sl_distance
-                    tp = entry - tp_distance
+                    r_distance = abs(entry - sl)
+                    tp = entry - (tp_r_multiple * r_distance)
                 lot = calculate_position_size(
                     account_balance=balance,
                     risk_per_trade_pct=risk_per_trade_pct,
@@ -136,13 +137,14 @@ class BacktestEngine:
                     else:
                         entry = float(current["close"])
                         entry += spread_price if decision.signal == Signal.BUY else -spread_price
-                        tp_distance = float(decision.sl_basis) * self.TP_TO_SL_RATIO
                         if decision.signal == Signal.BUY:
                             sl = entry - decision.sl_basis
-                            tp = entry + tp_distance
+                            r_distance = abs(entry - sl)
+                            tp = entry + (tp_r_multiple * r_distance)
                         else:
                             sl = entry + decision.sl_basis
-                            tp = entry - tp_distance
+                            r_distance = abs(entry - sl)
+                            tp = entry - (tp_r_multiple * r_distance)
                         lot = calculate_position_size(
                             account_balance=balance,
                             risk_per_trade_pct=risk_per_trade_pct,
