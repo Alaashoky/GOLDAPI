@@ -32,28 +32,44 @@ class _FakeMTF(Strategy):
         return CandidateSignal(self.name, Signal.BUY, 0.9, "mtf buy", 1.0, 2.0)
 
 
+class _MTFSelector(RegimeSelector):
+    def allowed_strategies(self, regime: str) -> set[str]:
+        return {"mtf_confluence"}
+
+
 class OrchestratorTests(unittest.TestCase):
-    def test_regime_selector_allows_momentum(self) -> None:
+    def test_regime_selector_allows_single_strategy_per_regime(self) -> None:
         selector = RegimeSelector()
-        self.assertIn("momentum", selector.allowed_strategies("RANGING"))
-        self.assertIn("liquidity_sweep", selector.allowed_strategies("RANGING"))
+        self.assertEqual(selector.allowed_strategies("TRENDING"), {"trend_ema_pullback"})
+        self.assertEqual(selector.allowed_strategies("BREAKOUT"), {"breakout_london_ny"})
+        self.assertEqual(selector.allowed_strategies("RANGING"), {"mean_reversion_rsi_bb"})
+        self.assertEqual(selector.allowed_strategies("UNKNOWN"), set())
+
+    def test_regime_selector_classifies_breakout_trending_and_ranging(self) -> None:
+        selector = RegimeSelector()
+        breakout = selector.classify([{"close": 100.0, "atr": 0.5, "ema_fast": 100.0, "ema_slow": 100.0}])
+        trending = selector.classify([{"close": 100.0, "atr": 0.1, "ema_fast": 101.0, "ema_slow": 100.0}])
+        ranging = selector.classify([{"close": 100.0, "atr": 0.1, "ema_fast": 100.02, "ema_slow": 100.0}])
+        self.assertEqual(breakout, "BREAKOUT")
+        self.assertEqual(trending, "TRENDING")
+        self.assertEqual(ranging, "RANGING")
 
     def test_best_signal_sorted_by_confidence(self) -> None:
         selector = RegimeSelector()
         strategies = [
             _StaticStrategy("trend_ema_pullback", Signal.BUY, 0.6),
             _StaticStrategy("breakout_london_ny", Signal.BUY, 0.8),
-            _StaticStrategy("atr_vol_expansion", Signal.HOLD),
+            _StaticStrategy("mean_reversion_rsi_bb", Signal.HOLD),
         ]
         orchestrator = StrategyOrchestrator(strategies, selector)
         bars = [{"close": 100.0, "atr": 0.2, "ema_fast": 101.0, "ema_slow": 100.0}]
         best = orchestrator.best_signal(bars)
         self.assertIsNotNone(best)
         assert best is not None
-        self.assertEqual(best.strategy, "breakout_london_ny")
+        self.assertEqual(best.strategy, "trend_ema_pullback")
 
     def test_mtf_strategy_uses_multi_tf_input(self) -> None:
-        selector = RegimeSelector()
+        selector = _MTFSelector()
         orchestrator = StrategyOrchestrator([_FakeMTF()], selector)
         bars = [{"close": 100.0, "atr": 0.1, "ema_fast": 101.0, "ema_slow": 100.0}]
         best = orchestrator.best_signal(bars, multi_tf_data={"M15": {"candles": [{}]}, "H1": {"candles": [{}]}, "H4": {"candles": [{}]}})
@@ -61,14 +77,20 @@ class OrchestratorTests(unittest.TestCase):
         assert best is not None
         self.assertEqual(best.signal, Signal.BUY)
 
-    def test_evaluate_with_details_no_longer_blocks_by_regime(self) -> None:
+    def test_evaluate_with_details_blocks_non_selected_strategies(self) -> None:
         selector = RegimeSelector()
-        strategies = [_StaticStrategy("mean_reversion_rsi_bb", Signal.BUY, 0.7)]
+        strategies = [
+            _StaticStrategy("trend_ema_pullback", Signal.BUY, 0.7),
+            _StaticStrategy("breakout_london_ny", Signal.BUY, 0.7),
+            _StaticStrategy("mean_reversion_rsi_bb", Signal.BUY, 0.7),
+        ]
         orchestrator = StrategyOrchestrator(strategies, selector)
-        bars = [{"close": 100.0, "atr": 0.4, "ema_fast": 102.0, "ema_slow": 99.0}]
-        _, runs = orchestrator.evaluate_with_details(bars)
-        self.assertFalse(runs[0].blocked)
-        self.assertEqual(runs[0].signal.signal, Signal.BUY)
+        bars = [{"close": 100.0, "atr": 0.4, "ema_fast": 100.05, "ema_slow": 100.0}]
+        regime, runs = orchestrator.evaluate_with_details(bars)
+        self.assertEqual(regime, "BREAKOUT")
+        active = [run for run in runs if not run.blocked]
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0].strategy, "breakout_london_ny")
 
 
 if __name__ == "__main__":
