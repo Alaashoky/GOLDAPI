@@ -44,6 +44,7 @@ class RunnerLoggingTests(unittest.TestCase):
         self.assertIn("fibonacci_pullback", text)
         self.assertIn("✅ BEST", text)
         self.assertIn("[blocked by regime]", text)
+        self.assertIn("Reason: Blocked by regime", text)
 
     def test_log_ai_filter_prints_human_readable_block(self) -> None:
         runner = self._runner()

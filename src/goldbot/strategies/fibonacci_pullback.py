@@ -23,43 +23,57 @@ class FibonacciPullbackStrategy(Strategy):
         if move <= 0:
             return hold(self.name, "Invalid swing range")
 
-        trend_up = float(last["ema_fast"]) > float(last["ema_slow"])
-        trend_down = float(last["ema_fast"]) < float(last["ema_slow"])
         price = float(last["close"])
         rsi = float(last["rsi"])
-        if not (30 <= rsi <= 70):
-            return hold(self.name, "RSI extreme")
+        ema_fast = float(last["ema_fast"])
+        ema_slow = float(last["ema_slow"])
+        if not (25 <= rsi <= 75):
+            return hold(self.name, f"RSI extreme ({rsi:.1f})")
 
-        if trend_up:
-            level_382 = swing_high - (move * 0.382)
-            level_500 = swing_high - (move * 0.5)
-            level_618 = swing_high - (move * 0.618)
-            level_786 = swing_high - (move * 0.786)
-            if level_618 <= price <= level_382:
-                confidence = 0.85 if price <= level_500 else 0.75
-                return CandidateSignal(
-                    self.name,
-                    Signal.BUY,
-                    confidence,
-                    "Price at Fibonacci pullback zone in uptrend",
-                    max(0.1, price - level_786),
-                    max(0.1, swing_high - price),
-                )
+        ema_diff_pct = ((ema_fast - ema_slow) / max(1e-6, price)) * 100
 
-        if trend_down:
-            level_382 = swing_low + (move * 0.382)
-            level_500 = swing_low + (move * 0.5)
-            level_618 = swing_low + (move * 0.618)
-            level_786 = swing_low + (move * 0.786)
-            if level_382 <= price <= level_618:
-                confidence = 0.85 if price >= level_500 else 0.75
-                return CandidateSignal(
-                    self.name,
-                    Signal.SELL,
-                    confidence,
-                    "Price at Fibonacci pullback zone in downtrend",
-                    max(0.1, level_786 - price),
-                    max(0.1, price - swing_low),
-                )
+        level_382_up = swing_high - (move * 0.382)
+        level_500_up = swing_high - (move * 0.5)
+        level_618_up = swing_high - (move * 0.618)
+        level_786_up = swing_high - (move * 0.786)
+        in_buy_zone = level_618_up <= price <= level_382_up
+        can_buy = ema_diff_pct > -0.05
+        if in_buy_zone and can_buy:
+            confidence = 0.85 if price <= level_500_up else 0.7
+            if ema_diff_pct < 0:
+                confidence *= 0.8
+            return CandidateSignal(
+                self.name,
+                Signal.BUY,
+                confidence,
+                f"Price at Fibonacci pullback zone ({price:.2f} in {level_618_up:.2f}-{level_382_up:.2f})",
+                max(0.1, price - level_786_up),
+                max(0.1, swing_high - price),
+            )
 
-        return hold(self.name, "No Fibonacci pullback setup")
+        level_382_dn = swing_low + (move * 0.382)
+        level_500_dn = swing_low + (move * 0.5)
+        level_618_dn = swing_low + (move * 0.618)
+        level_786_dn = swing_low + (move * 0.786)
+        in_sell_zone = level_382_dn <= price <= level_618_dn
+        can_sell = ema_diff_pct < 0.05
+        if in_sell_zone and can_sell:
+            confidence = 0.85 if price >= level_500_dn else 0.7
+            if ema_diff_pct > 0:
+                confidence *= 0.8
+            return CandidateSignal(
+                self.name,
+                Signal.SELL,
+                confidence,
+                f"Price at Fibonacci retracement zone ({price:.2f} in {level_382_dn:.2f}-{level_618_dn:.2f})",
+                max(0.1, level_786_dn - price),
+                max(0.1, price - swing_low),
+            )
+
+        return hold(
+            self.name,
+            (
+                f"Price {price:.2f} not in fib zone "
+                f"(buy: {level_618_up:.2f}-{level_382_up:.2f}, sell: {level_382_dn:.2f}-{level_618_dn:.2f})"
+            ),
+        )

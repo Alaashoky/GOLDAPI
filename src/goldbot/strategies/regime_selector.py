@@ -35,4 +35,5 @@ class RegimeSelector:
             "mtf_confluence",
             "mean_reversion_rsi_bb",
             "pivot_bounce",
+            "momentum",
         }
