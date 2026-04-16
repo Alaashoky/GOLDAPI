@@ -6,13 +6,15 @@ from goldbot.backtest.metrics import calculate_metrics
 from goldbot.execution.order_models import Signal
 from goldbot.risk.position_sizing import calculate_position_size
 from goldbot.strategies.base import Strategy
+from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 
 
 class BacktestEngine:
     WARMUP_BARS = 30
+    TP_TO_SL_RATIO = 2.0
 
     def _apply_h1_trend_filter(self, signal: Signal, strategy: Strategy, h1_trend: str | None) -> bool:
-        if strategy.name != "liquidity_sweep":
+        if strategy.name != LiquiditySweepStrategy.name:
             return True
         trend = (h1_trend or "").lower()
         if signal == Signal.BUY:
@@ -56,7 +58,7 @@ class BacktestEngine:
                 raw_open = float(current["open"])
                 entry = raw_open + spread_price if pending_entry["signal"] == Signal.BUY.value else raw_open - spread_price
                 sl_distance = float(pending_entry["sl_distance"])
-                tp_distance = sl_distance * 2.0
+                tp_distance = sl_distance * self.TP_TO_SL_RATIO
                 if pending_entry["signal"] == Signal.BUY.value:
                     sl = entry - sl_distance
                     tp = entry + tp_distance
@@ -134,7 +136,7 @@ class BacktestEngine:
                     else:
                         entry = float(current["close"])
                         entry += spread_price if decision.signal == Signal.BUY else -spread_price
-                        tp_distance = float(decision.sl_basis) * 2.0
+                        tp_distance = float(decision.sl_basis) * self.TP_TO_SL_RATIO
                         if decision.signal == Signal.BUY:
                             sl = entry - decision.sl_basis
                             tp = entry + tp_distance

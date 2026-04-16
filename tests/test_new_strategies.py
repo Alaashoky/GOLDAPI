@@ -33,7 +33,7 @@ class NewStrategiesTests(unittest.TestCase):
                 }
             )
         bars[10]["low"] = 95.0
-        bars[22]["low"] = 94.85  # 0.15 ATR sweep below prior swing low
+        bars[22]["low"] = 94.85  # 0.15 ATR sweep below prior swing low (below 0.2 threshold)
         bars[24]["open"] = 96.0
         bars[24]["close"] = 97.0
         bars[24]["low"] = 96.0

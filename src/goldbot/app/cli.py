@@ -211,7 +211,7 @@ def main() -> None:
         print(
             "Summary: PF={pf:.3f} | Trades={trades:.0f} | WinRate={wr:.2%} | PnL={pnl:.2f} | MaxDD={dd:.2f}".format(
                 pf=float(metrics.get("profit_factor", 0.0)),
-                trades=float(metrics.get("trades", 0.0)),
+                trades=int(metrics.get("trades", 0.0)),
                 wr=float(metrics.get("win_rate", 0.0)),
                 pnl=float(metrics.get("total_pnl", 0.0)),
                 dd=float(metrics.get("max_drawdown", 0.0)),

@@ -8,6 +8,10 @@ from goldbot.backtest.engine import BacktestEngine
 from goldbot.execution.models import CandidateSignal, Signal
 from goldbot.strategies.base import Strategy, hold
 
+TEST_CONFIDENCE = 0.8
+TEST_SL_BASIS = 1.0
+IGNORED_TP_BASIS = 0.1
+
 
 class _SingleSignalStrategy(Strategy):
     name = "test"
@@ -18,7 +22,7 @@ class _SingleSignalStrategy(Strategy):
 
     def evaluate(self, bars: list[dict]) -> CandidateSignal:
         if len(bars) == self.trigger_len:
-            return CandidateSignal(self.name, self.signal, 0.8, "test", 1.0, 0.1)
+            return CandidateSignal(self.name, self.signal, TEST_CONFIDENCE, "test", TEST_SL_BASIS, IGNORED_TP_BASIS)
         return hold(self.name, "wait")
 
 
