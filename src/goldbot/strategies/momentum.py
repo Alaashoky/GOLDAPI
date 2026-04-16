@@ -40,13 +40,11 @@ class MomentumStrategy(Strategy):
         elif close < prev_close and prev_close < prev2_close:
             bear_score += 1
 
-        if 40 <= rsi <= 65:
-            bull_score += 1
-        elif 35 <= rsi <= 60:
-            pass
         if rsi < 40:
             bear_score += 1
-        if rsi > 60:
+        elif rsi > 60:
+            bull_score += 1
+        else:
             bull_score += 1
 
         if macd_hist > 0:

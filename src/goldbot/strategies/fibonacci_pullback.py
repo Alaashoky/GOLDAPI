@@ -8,6 +8,10 @@ from goldbot.strategies.base import Strategy, hold
 
 class FibonacciPullbackStrategy(Strategy):
     name = "fibonacci_pullback"
+    RSI_MIN = 25
+    RSI_MAX = 75
+    EMA_NEUTRAL_TOLERANCE_PCT = 0.05
+    PRICE_EPSILON = 1e-6
 
     def __init__(self, lookback: int = 80) -> None:
         self.lookback = lookback
@@ -27,17 +31,17 @@ class FibonacciPullbackStrategy(Strategy):
         rsi = float(last["rsi"])
         ema_fast = float(last["ema_fast"])
         ema_slow = float(last["ema_slow"])
-        if not (25 <= rsi <= 75):
+        if not (self.RSI_MIN <= rsi <= self.RSI_MAX):
             return hold(self.name, f"RSI extreme ({rsi:.1f})")
 
-        ema_diff_pct = ((ema_fast - ema_slow) / max(1e-6, price)) * 100
+        ema_diff_pct = ((ema_fast - ema_slow) / max(self.PRICE_EPSILON, price)) * 100
 
         level_382_up = swing_high - (move * 0.382)
         level_500_up = swing_high - (move * 0.5)
         level_618_up = swing_high - (move * 0.618)
         level_786_up = swing_high - (move * 0.786)
         in_buy_zone = level_618_up <= price <= level_382_up
-        can_buy = ema_diff_pct > -0.05
+        can_buy = ema_diff_pct > -self.EMA_NEUTRAL_TOLERANCE_PCT
         if in_buy_zone and can_buy:
             confidence = 0.85 if price <= level_500_up else 0.7
             if ema_diff_pct < 0:
@@ -56,7 +60,7 @@ class FibonacciPullbackStrategy(Strategy):
         level_618_dn = swing_low + (move * 0.618)
         level_786_dn = swing_low + (move * 0.786)
         in_sell_zone = level_382_dn <= price <= level_618_dn
-        can_sell = ema_diff_pct < 0.05
+        can_sell = ema_diff_pct < self.EMA_NEUTRAL_TOLERANCE_PCT
         if in_sell_zone and can_sell:
             confidence = 0.85 if price >= level_500_dn else 0.7
             if ema_diff_pct > 0:
