@@ -50,7 +50,29 @@ def _build_bars() -> list[dict]:
 
 
 class BacktestEngineEntryModelTests(unittest.TestCase):
-    def test_buy_uses_next_open_and_spread_points(self) -> None:
+    def test_buy_uses_next_open_spread_points_and_configurable_tp_multiple(self) -> None:
+        bars = _build_bars()
+        bars[31]["high"] = 103.2
+        bars[31]["low"] = 99.7
+        result = BacktestEngine().run(
+            bars=bars,
+            strategy=_SingleSignalStrategy(Signal.BUY),
+            starting_balance=10000.0,
+            risk_per_trade_pct=1.0,
+            entry_model="next_open",
+            spread_points=60.0,
+            point_value=0.01,
+            tp_r_multiple=2.5,
+        )
+
+        trade = result["trades"][0]
+        self.assertEqual(trade["signal_index"], 30)
+        self.assertEqual(trade["entry_index"], 31)
+        self.assertAlmostEqual(trade["entry"], 100.6, places=6)
+        self.assertAlmostEqual(trade["tp"] - trade["entry"], 2.5 * abs(trade["entry"] - trade["sl"]), places=6)
+        self.assertEqual(trade["reason"], "TP")
+
+    def test_default_tp_multiple_remains_2r(self) -> None:
         bars = _build_bars()
         bars[31]["high"] = 102.7
         bars[31]["low"] = 99.7
@@ -65,11 +87,7 @@ class BacktestEngineEntryModelTests(unittest.TestCase):
         )
 
         trade = result["trades"][0]
-        self.assertEqual(trade["signal_index"], 30)
-        self.assertEqual(trade["entry_index"], 31)
-        self.assertAlmostEqual(trade["entry"], 100.6, places=6)
         self.assertAlmostEqual(trade["tp"] - trade["entry"], 2 * abs(trade["entry"] - trade["sl"]), places=6)
-        self.assertEqual(trade["reason"], "TP")
 
     def test_sell_uses_next_open_and_spread_points(self) -> None:
         bars = _build_bars()

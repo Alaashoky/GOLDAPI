@@ -57,6 +57,8 @@ Backtest (MT5 historical M15, Liquidity Sweep, next-open entry, spread points):
 
 ```bash
 PYTHONPATH=src python -m goldbot.app.cli backtest --symbol XAUUSD.m --from-date 2025-04-16 --to-date 2026-04-16 --entry-model next_open --spread-points 60 --trades-csv backtest_trades.csv
+PYTHONPATH=src python -m goldbot.app.cli backtest --symbol XAUUSD.m --from-date 2025-04-16 --to-date 2026-04-16 --entry-model next_open --spread-points 60 --tp-r-multiple 2.5 --trades-csv backtest_trades_2p5r.csv
+PYTHONPATH=src python -m goldbot.app.cli backtest --symbol XAUUSD.m --from-date 2025-04-16 --to-date 2026-04-16 --entry-model next_open --spread-points 60 --tp-r-multiple 3.0 --trades-csv backtest_trades_3r.csv
 ```
 
 ## Design Rules

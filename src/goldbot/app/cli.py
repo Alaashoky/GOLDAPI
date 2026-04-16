@@ -100,6 +100,7 @@ def main() -> None:
     backtest_cmd.add_argument("--to-date", dest="to_date", default=today.isoformat(), help="End date YYYY-MM-DD")
     backtest_cmd.add_argument("--entry-model", choices=["next_open", "close"], default="next_open")
     backtest_cmd.add_argument("--spread-points", type=float, default=60.0)
+    backtest_cmd.add_argument("--tp-r-multiple", type=float, default=2.0)
     backtest_cmd.add_argument("--point-value", type=float, default=None)
     backtest_cmd.add_argument("--starting-balance", type=float, default=10000.0)
     backtest_cmd.add_argument("--risk-per-trade-pct", type=float, default=None)
@@ -126,6 +127,8 @@ def main() -> None:
         return
 
     if args.cmd == "backtest":
+        if args.tp_r_multiple <= 0:
+            raise ValueError("--tp-r-multiple must be greater than 0.")
         symbol = args.symbol or settings.symbol
         h1_bars: list[dict] = []
         if args.csv:
@@ -178,6 +181,7 @@ def main() -> None:
             volume_step=volume_step,
             volume_max=volume_max,
             h1_trends=h1_trends,
+            tp_r_multiple=args.tp_r_multiple,
         )
 
         journal = TradeJournal(str(args.trades_csv))
@@ -206,6 +210,7 @@ def main() -> None:
         metrics["from_date"] = args.from_date
         metrics["to_date"] = args.to_date
         metrics["spread_points"] = args.spread_points
+        metrics["tp_r_multiple"] = args.tp_r_multiple
         metrics["point_value"] = point_value
         print(json.dumps(metrics, indent=2))
         print(
