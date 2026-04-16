@@ -1,47 +1,32 @@
-"""AI-first market analyzer for XAUUSD."""
+"""AI trade filter for hybrid strategy + AI flow."""
 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
 import json
 import logging
-import re
 
-from goldbot.ai.prompts import MARKET_ANALYSIS_SYSTEM_PROMPT, build_market_analysis_prompt
-from goldbot.execution.models import AIAnalysis, Signal
-
-
-def _extract_json(raw: str) -> str:
-    """Extract JSON from AI response, stripping markdown fences and extra text."""
-    text = raw.strip()
-    if not text:
-        return ""
-    lines = text.splitlines()
-    if lines and re.match(r"^```[A-Za-z0-9_-]*$", lines[0].strip()):
-        lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    decoder = json.JSONDecoder()
-    start = text.find("{")
-    while start != -1:
-        try:
-            parsed, end = decoder.raw_decode(text[start:])
-            if isinstance(parsed, dict):
-                return text[start : start + end].strip()
-        except json.JSONDecodeError:
-            pass
-        start = text.find("{", start + 1)
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return text[start : end + 1]
-    return text
+from goldbot.ai.analyzer import _extract_json
+from goldbot.ai.prompts import SYSTEM_PROMPT, build_filter_prompt
+from goldbot.execution.models import CandidateSignal
 
 
-class MarketAnalyzer:
+@dataclass(slots=True)
+class FilterResult:
+    decision: str
+    confidence: int
+    reasoning: str
+    risk_factors: list[str]
+    news_impact: str
+    suggested_sl: float | None
+    suggested_tp: float | None
+    raw: str = ""
+
+
+class AITradeFilter:
+    """AI evaluates strategy signals and approves/rejects execution."""
+
     def __init__(self, api_key: str, model: str, timeout_seconds: int = 12, retries: int = 1) -> None:
         self.api_key = api_key
         self.model = model
@@ -60,16 +45,15 @@ class MarketAnalyzer:
     def enabled(self) -> bool:
         return self.client is not None
 
-    def _fallback(self, reason: str) -> AIAnalysis:
-        return AIAnalysis(
-            trend="neutral",
-            support_levels=[],
-            resistance_levels=[],
+    def _fallback(self, reason: str) -> FilterResult:
+        return FilterResult(
+            decision="REJECT",
+            confidence=0,
+            reasoning=reason,
             risk_factors=[reason],
             news_impact="none",
-            confidence=0,
-            action=Signal.HOLD,
-            reasoning=reason,
+            suggested_sl=None,
+            suggested_tp=None,
             raw="",
         )
 
@@ -78,30 +62,51 @@ class MarketAnalyzer:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": MARKET_ANALYSIS_SYSTEM_PROMPT},
+                {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.1,
             response_format={"type": "json_object"},
         )
         if not response.choices:
-            logging.getLogger("goldbot").warning("AI analyzer returned no choices")
+            logging.getLogger("goldbot").warning("AI trade filter returned no choices")
             return ""
         message = response.choices[0].message
         return str(getattr(message, "content", "") or "")
 
-    def analyze(
+    def evaluate(
         self,
         symbol: str,
+        candidate_signal: CandidateSignal | dict,
         timeframes: dict[str, dict],
         news: list[dict],
         trade_history: list[dict],
         performance_summary: dict,
-    ) -> AIAnalysis:
+    ) -> FilterResult:
         if not self.enabled:
             return self._fallback("AI unavailable")
 
-        prompt = build_market_analysis_prompt(symbol, timeframes, news, trade_history, performance_summary)
+        if isinstance(candidate_signal, dict):
+            candidate_dict = dict(candidate_signal)
+        else:
+            candidate_dict = {
+                "strategy": candidate_signal.strategy,
+                "signal": candidate_signal.signal.value,
+                "confidence": int(max(0, min(100, round(candidate_signal.confidence * 100)))),
+                "rationale": candidate_signal.rationale,
+                "sl_basis": candidate_signal.sl_basis,
+                "tp_basis": candidate_signal.tp_basis,
+            }
+
+        prompt = build_filter_prompt(
+            symbol=symbol,
+            candidate=candidate_dict,
+            timeframes=timeframes,
+            news=news,
+            trade_history=trade_history,
+            performance_summary=performance_summary,
+        )
+
         last_error = "AI returned invalid response"
         for _ in range(self.retries + 1):
             try:
@@ -112,24 +117,21 @@ class MarketAnalyzer:
                     last_error = "AI empty response after cleaning"
                     continue
                 parsed = json.loads(cleaned)
-                action = str(parsed.get("action", "HOLD")).upper()
-                signal = Signal(action) if action in {"BUY", "SELL", "HOLD"} else Signal.HOLD
+                decision = str(parsed.get("decision", "REJECT")).upper()
+                if decision not in {"APPROVE", "REJECT"}:
+                    decision = "REJECT"
+
                 confidence = int(max(0, min(100, int(parsed.get("confidence", 0)))))
-                entry = parsed.get("entry")
-                sl = parsed.get("sl")
-                tp = parsed.get("tp")
-                return AIAnalysis(
-                    trend=str(parsed.get("trend", "neutral")),
-                    support_levels=[float(x) for x in parsed.get("support_levels", [])],
-                    resistance_levels=[float(x) for x in parsed.get("resistance_levels", [])],
+                sl = parsed.get("suggested_sl_adjustment")
+                tp = parsed.get("suggested_tp_adjustment")
+                return FilterResult(
+                    decision=decision,
+                    confidence=confidence,
+                    reasoning=str(parsed.get("reasoning", "No reasoning provided")),
                     risk_factors=[str(x) for x in parsed.get("risk_factors", [])],
                     news_impact=str(parsed.get("news_impact", "none")),
-                    confidence=confidence,
-                    action=signal,
-                    reasoning=str(parsed.get("reasoning", "")),
-                    entry=float(entry) if entry is not None else None,
-                    sl=float(sl) if sl is not None else None,
-                    tp=float(tp) if tp is not None else None,
+                    suggested_sl=float(sl) if sl is not None else None,
+                    suggested_tp=float(tp) if tp is not None else None,
                     raw=raw,
                 )
             except (json.JSONDecodeError, ValueError) as exc:

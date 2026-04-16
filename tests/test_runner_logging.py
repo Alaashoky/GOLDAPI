@@ -8,7 +8,9 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from goldbot.app.runner import BotRunner
-from goldbot.execution.models import AIAnalysis, OrderResult, Signal, TradeSignal
+from goldbot.ai.filter import FilterResult
+from goldbot.execution.models import CandidateSignal, OrderResult, Signal, TradeSignal
+from goldbot.strategies.orchestrator import StrategyRun
 
 
 class RunnerLoggingTests(unittest.TestCase):
@@ -17,35 +19,50 @@ class RunnerLoggingTests(unittest.TestCase):
         runner.settings = SimpleNamespace(symbol="XAUUSD.m", mode="paper")
         return runner
 
-    def test_log_analysis_prints_human_readable_block(self) -> None:
+    def test_log_strategy_signals_prints_human_readable_block(self) -> None:
         runner = self._runner()
-        analysis = AIAnalysis(
-            trend="bullish",
-            support_levels=[3210.5, 3195.0],
-            resistance_levels=[3245.0, 3260.0],
-            risk_factors=["NFP report tomorrow", "High volatility"],
-            news_impact="medium",
-            confidence=72,
-            action=Signal.BUY,
-            reasoning="Bullish trend on H1/H4.",
-            entry=3225.5,
-            sl=3210.0,
-            tp=3255.0,
+        best = CandidateSignal(
+            strategy="fibonacci_pullback",
+            signal=Signal.BUY,
+            confidence=0.75,
+            rationale="Fib 61.8 pullback",
+            sl_basis=7.0,
+            tp_basis=20.0,
         )
-        decision = TradeSignal(Signal.BUY, 72, "Bullish trend on H1/H4.", 3225.5, 3210.0, 3255.0)
+        runs = [
+            StrategyRun(strategy=best.strategy, signal=best, blocked=False),
+            StrategyRun(strategy="pivot_bounce", signal=CandidateSignal("pivot_bounce", Signal.HOLD, 0.0, "Blocked by regime", 0.0, 0.0), blocked=True),
+        ]
 
         output = StringIO()
         with redirect_stdout(output):
-            runner._log_analysis(analysis, decision)
+            runner._log_strategy_signals("TRENDING", runs, best, entry=4825.0)
 
         text = output.getvalue()
-        self.assertIn("🧠 AI ANALYSIS — XAUUSD.m", text)
-        self.assertIn("📈 Trend:        bullish", text)
-        self.assertIn("💪 Confidence:   72%", text)
-        self.assertIn("📊 Support:      3210.50, 3195.00", text)
-        self.assertIn("⚠️  Risk Factors:", text)
-        self.assertIn("🎯 ACTION:       BUY", text)
-        self.assertIn("💬 Reasoning:", text)
+        self.assertIn("📐 STRATEGY SIGNALS — XAUUSD.m", text)
+        self.assertIn("🏷️  Market Regime: TRENDING", text)
+        self.assertIn("fibonacci_pullback", text)
+        self.assertIn("✅ BEST", text)
+        self.assertIn("[blocked by regime]", text)
+
+    def test_log_ai_filter_prints_human_readable_block(self) -> None:
+        runner = self._runner()
+        best = CandidateSignal("fibonacci_pullback", Signal.BUY, 0.75, "Fib setup", 7.0, 20.0)
+        result = FilterResult(
+            decision="APPROVE",
+            confidence=82,
+            reasoning="Strong setup",
+            risk_factors=["None significant"],
+            news_impact="low",
+            suggested_sl=None,
+            suggested_tp=None,
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            runner._log_ai_filter(result, best)
+        text = output.getvalue()
+        self.assertIn("🧠 AI FILTER — Evaluating: fibonacci_pullback BUY", text)
+        self.assertIn("📋 Decision:     APPROVE ✅", text)
 
     def test_log_trade_executed_prints_trade_details(self) -> None:
         runner = self._runner()
