@@ -43,7 +43,7 @@ class MTFConfluenceStrategy(Strategy):
                 confirms += 1
             if abs(price - float(m15_last["pivot_s1"])) <= (0.5 * atr):
                 confirms += 1
-            if confirms >= 4:
+            if confirms >= 3:
                 confidence = confirms / factors
                 return CandidateSignal(
                     self.name,
@@ -59,7 +59,7 @@ class MTFConfluenceStrategy(Strategy):
                 confirms += 1
             if abs(price - float(m15_last["pivot_r1"])) <= (0.5 * atr):
                 confirms += 1
-            if confirms >= 4:
+            if confirms >= 3:
                 confidence = confirms / factors
                 return CandidateSignal(
                     self.name,

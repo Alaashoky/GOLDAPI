@@ -56,14 +56,14 @@ class OrchestratorTests(unittest.TestCase):
         assert best is not None
         self.assertEqual(best.signal, Signal.BUY)
 
-    def test_evaluate_with_details_marks_regime_blocked(self) -> None:
+    def test_evaluate_with_details_no_longer_blocks_by_regime(self) -> None:
         selector = RegimeSelector()
         strategies = [_StaticStrategy("mean_reversion_rsi_bb", Signal.BUY, 0.7)]
         orchestrator = StrategyOrchestrator(strategies, selector)
         bars = [{"close": 100.0, "atr": 0.4, "ema_fast": 102.0, "ema_slow": 99.0}]
         _, runs = orchestrator.evaluate_with_details(bars)
-        self.assertTrue(runs[0].blocked)
-        self.assertEqual(runs[0].signal.signal, Signal.HOLD)
+        self.assertFalse(runs[0].blocked)
+        self.assertEqual(runs[0].signal.signal, Signal.BUY)
 
 
 if __name__ == "__main__":

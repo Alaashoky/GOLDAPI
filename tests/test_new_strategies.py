@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from goldbot.execution.models import Signal
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
+from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
 from goldbot.strategies.order_block import OrderBlockStrategy
 from goldbot.strategies.pivot_bounce import PivotBounceStrategy
@@ -103,6 +104,80 @@ class NewStrategiesTests(unittest.TestCase):
         )
         signal = PivotBounceStrategy().evaluate(bars)
         self.assertEqual(signal.signal, Signal.SELL)
+
+    def test_fibonacci_pullback_default_lookback_is_80(self) -> None:
+        self.assertEqual(FibonacciPullbackStrategy().lookback, 80)
+
+    def test_mean_reversion_buy_allows_atr_proximity(self) -> None:
+        bars = [
+            {
+                "close": 100.15,
+                "bb_lower": 100.0,
+                "bb_upper": 101.0,
+                "rsi": 35.0,
+                "atr": 1.0,
+            },
+            {
+                "close": 100.15,
+                "bb_lower": 100.0,
+                "bb_upper": 101.0,
+                "rsi": 35.0,
+                "atr": 1.0,
+            },
+        ]
+        signal = MeanReversionRSIBBStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.BUY)
+
+    def test_pivot_bounce_sell_allows_proximity_zone(self) -> None:
+        bars = []
+        for _ in range(9):
+            bars.append(
+                {
+                    "close": 105.2,
+                    "pivot": 103.0,
+                    "pivot_r1": 105.0,
+                    "pivot_s1": 101.0,
+                    "ema_fast": 100.0,
+                    "ema_slow": 104.0,
+                    "atr": 1.0,
+                }
+            )
+        bars.append(
+            {
+                "close": 104.9,
+                "pivot": 103.0,
+                "pivot_r1": 105.0,
+                "pivot_s1": 101.0,
+                "ema_fast": 100.0,
+                "ema_slow": 104.0,
+                "atr": 1.0,
+            }
+        )
+        signal = PivotBounceStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.SELL)
+
+    def test_order_block_allows_lower_thrust_without_three_same_direction_candles(self) -> None:
+        bars = [
+            {"open": 103.0, "close": 103.0, "high": 103.2, "low": 102.8, "atr": 1.0},
+            {"open": 102.0, "close": 102.1, "high": 102.3, "low": 101.9, "atr": 1.0},
+            {"open": 100.0, "close": 99.5, "high": 100.0, "low": 99.0, "atr": 1.0},
+            {"open": 100.2, "close": 100.8, "high": 101.0, "low": 100.2, "atr": 1.0},
+            {"open": 100.8, "close": 100.6, "high": 101.0, "low": 100.5, "atr": 1.0},
+            {"open": 100.6, "close": 101.1, "high": 101.2, "low": 100.6, "atr": 1.0},
+            {"open": 101.1, "close": 101.0, "high": 101.3, "low": 100.9, "atr": 1.0},
+            {"open": 99.8, "close": 99.7, "high": 100.0, "low": 99.5, "atr": 1.0},
+        ]
+        signal = OrderBlockStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.BUY)
+
+    def test_mtf_confluence_accepts_three_confirms(self) -> None:
+        multi = {
+            "H4": {"candles": [{"ema_fast": 110, "ema_slow": 100}]},
+            "H1": {"candles": [{"ema_fast": 111, "ema_slow": 101}]},
+            "M15": {"candles": [{"ema_fast": 112, "ema_slow": 102, "rsi": 70, "pivot_s1": 90, "pivot_r1": 120, "close": 100, "atr": 1.0}]},
+        }
+        signal = MTFConfluenceStrategy().evaluate_multi(multi)
+        self.assertEqual(signal.signal, Signal.BUY)
 
 
 if __name__ == "__main__":

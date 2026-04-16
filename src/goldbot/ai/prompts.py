@@ -61,6 +61,72 @@ def build_market_analysis_prompt(
     )
 
 
+def _summarize_bars(candles: list[dict], count: int = 100) -> dict:
+    """Compute summary stats from recent candles for richer AI filter context."""
+    recent = candles[-count:] if len(candles) >= count else candles
+    if not recent:
+        return {}
+
+    highs = [float(c["high"]) for c in recent]
+    lows = [float(c["low"]) for c in recent]
+    closes = [float(c["close"]) for c in recent]
+    swing_high = max(highs)
+    swing_low = min(lows)
+    move = swing_high - swing_low
+    last = recent[-1]
+
+    bullish_candles = sum(1 for c in recent if float(c["close"]) > float(c["open"]))
+    bearish_candles = len(recent) - bullish_candles
+    summary = {
+        "bars_analyzed": len(recent),
+        "swing_high": round(swing_high, 2),
+        "swing_low": round(swing_low, 2),
+        "range": round(move, 2),
+        "current_price": round(float(last["close"]), 2),
+        "price_position_pct": round((float(last["close"]) - swing_low) / max(move, 0.01) * 100, 1),
+        "bullish_candles": bullish_candles,
+        "bearish_candles": bearish_candles,
+        "bullish_ratio_pct": round(bullish_candles / max(len(recent), 1) * 100, 1),
+    }
+
+    if move > 0:
+        summary["fib_236"] = round(swing_high - move * 0.236, 2)
+        summary["fib_382"] = round(swing_high - move * 0.382, 2)
+        summary["fib_500"] = round(swing_high - move * 0.5, 2)
+        summary["fib_618"] = round(swing_high - move * 0.618, 2)
+        summary["fib_786"] = round(swing_high - move * 0.786, 2)
+
+    for key in [
+        "ema_fast",
+        "ema_slow",
+        "rsi",
+        "atr",
+        "macd",
+        "macd_signal",
+        "macd_hist",
+        "bb_upper",
+        "bb_mid",
+        "bb_lower",
+        "stoch_rsi",
+        "pivot",
+        "pivot_r1",
+        "pivot_s1",
+    ]:
+        val = last.get(key)
+        if val is not None:
+            summary[key] = round(float(val), 4)
+
+    if summary.get("ema_fast") and summary.get("ema_slow"):
+        if summary["ema_fast"] > summary["ema_slow"]:
+            summary["trend"] = "bullish"
+        elif summary["ema_fast"] < summary["ema_slow"]:
+            summary["trend"] = "bearish"
+        else:
+            summary["trend"] = "neutral"
+
+    return summary
+
+
 def build_filter_prompt(
     symbol: str,
     candidate: dict,
@@ -70,16 +136,33 @@ def build_filter_prompt(
     performance_summary: dict,
 ) -> str:
     """Build prompt for AI to evaluate a strategy signal."""
+    market_context = {}
+    for tf, frame in timeframes.items():
+        candles = frame.get("candles", [])
+        recent_candles = candles[-10:] if len(candles) >= 10 else candles
+        market_context[tf] = {
+            "trend": frame.get("trend"),
+            "summary": _summarize_bars(candles, count=100),
+            "recent_candles": [
+                {
+                    "time": c.get("time"),
+                    "open": round(float(c["open"]), 2),
+                    "high": round(float(c["high"]), 2),
+                    "low": round(float(c["low"]), 2),
+                    "close": round(float(c["close"]), 2),
+                    "rsi": round(float(c.get("rsi", 50)), 2),
+                    "ema_fast": round(float(c.get("ema_fast", 0)), 2),
+                    "ema_slow": round(float(c.get("ema_slow", 0)), 2),
+                    "macd_hist": round(float(c.get("macd_hist", 0)), 4),
+                }
+                for c in recent_candles
+            ],
+        }
+
     payload = {
         "symbol": symbol,
         "strategy_signal": candidate,
-        "market_context": {
-            tf: {
-                "trend": frame.get("trend"),
-                "latest": frame.get("candles", [])[-1] if frame.get("candles") else {},
-            }
-            for tf, frame in timeframes.items()
-        },
+        "market_context": market_context,
         "news": news,
         "recent_trade_history": trade_history,
         "performance_summary": performance_summary,
@@ -87,7 +170,10 @@ def build_filter_prompt(
     return (
         f"A trading strategy generated the following signal for {symbol}. "
         "Evaluate whether to APPROVE or REJECT this trade. "
+        "You have the last 10 candles per timeframe plus a statistical summary of the last 100 candles "
+        "including Fibonacci levels, swing high/low, trend direction, and key indicators. "
         "Consider: trend alignment across timeframes, news impact, recent trade performance, "
-        "and risk factors. Only APPROVE if the setup is solid.\n"
+        "Fibonacci levels, support/resistance zones, and risk factors. "
+        "Only APPROVE if the setup is solid and the risk/reward is favorable.\n"
         f"SIGNAL_CONTEXT={json.dumps(payload, ensure_ascii=False)}"
     )
