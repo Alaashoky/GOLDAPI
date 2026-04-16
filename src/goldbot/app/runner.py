@@ -1,4 +1,4 @@
-"""Main AI-first bot runner for single-run and loop modes."""
+"""Main hybrid bot runner for single-run and loop modes."""
 
 from __future__ import annotations
 
@@ -7,20 +7,30 @@ from types import FrameType
 import signal
 import time
 
-from goldbot.ai.analyzer import MarketAnalyzer
+from goldbot.ai.filter import AITradeFilter, FilterResult
 from goldbot.ai.memory import TradeMemory
-from goldbot.ai.signal_generator import AISignalGenerator
 from goldbot.config.settings import Settings
 from goldbot.data.multi_timeframe import fetch_multi_timeframe_data
 from goldbot.data.news_feed import NewsFeed
 from goldbot.data.mt5_adapter import MT5DataAdapter
-from goldbot.execution.models import AIAnalysis, OrderRequest, OrderResult, Signal, TradeSignal
+from goldbot.execution.models import AIAnalysis, CandidateSignal, OrderRequest, OrderResult, Signal, TradeSignal
 from goldbot.execution.mt5_executor import MT5Executor
 from goldbot.ops.alerts import TelegramAlerter
 from goldbot.ops.journal import TradeJournal
 from goldbot.ops.logger import get_logger
 from goldbot.risk.guardrails import RiskGuardrails
 from goldbot.risk.position_sizing import calculate_position_size
+from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
+from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
+from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
+from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
+from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
+from goldbot.strategies.orchestrator import StrategyOrchestrator, StrategyRun
+from goldbot.strategies.order_block import OrderBlockStrategy
+from goldbot.strategies.pivot_bounce import PivotBounceStrategy
+from goldbot.strategies.regime_selector import RegimeSelector
+from goldbot.strategies.session_breakout import SessionBreakoutStrategy
+from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 
 
 class BotRunner:
@@ -34,17 +44,31 @@ class BotRunner:
 
         self.data = MT5DataAdapter(settings.mt5_login, settings.mt5_password, settings.mt5_server)
         self.executor = MT5Executor(enabled=settings.mode in {"demo", "live"}, deviation=settings.execution.deviation)
-        self.analyzer = MarketAnalyzer(
+        self.ai_filter = AITradeFilter(
             api_key=settings.openai_api_key,
             model=settings.ai.model,
             timeout_seconds=settings.ai.timeout_seconds,
             retries=settings.ai.retries,
         )
-        self.signal_generator = AISignalGenerator()
         self.news_feed = NewsFeed(settings.finnhub_api_key)
         self.memory = TradeMemory(settings.memory_db_path)
         self.alerter = TelegramAlerter(settings.telegram_bot_token, settings.telegram_chat_id)
         self.journal = TradeJournal(settings.journal.csv_path, settings.journal.sqlite_path)
+        self.regime_selector = RegimeSelector()
+        self.orchestrator = StrategyOrchestrator(
+            strategies=[
+                FibonacciPullbackStrategy(),
+                TrendEMAPullbackStrategy(),
+                OrderBlockStrategy(),
+                SessionBreakoutStrategy(),
+                MTFConfluenceStrategy(),
+                BreakoutLondonNYStrategy(),
+                ATRVolExpansionStrategy(),
+                MeanReversionRSIBBStrategy(),
+                PivotBounceStrategy(),
+            ],
+            regime_selector=self.regime_selector,
+        )
         self.guardrails = RiskGuardrails(
             max_daily_loss_pct=settings.risk.max_daily_loss_pct,
             max_open_trades=settings.risk.max_concurrent_positions,
@@ -62,31 +86,42 @@ class BotRunner:
         signal.signal(signal.SIGINT, self._request_stop)
         signal.signal(signal.SIGTERM, self._request_stop)
 
-    def _log_analysis(self, analysis: AIAnalysis, signal_decision: TradeSignal) -> None:
-        support = ", ".join(f"{level:.2f}" for level in analysis.support_levels) or "-"
-        resistance = ", ".join(f"{level:.2f}" for level in analysis.resistance_levels) or "-"
-        risk_factors = analysis.risk_factors or ["None noted"]
+    def _log_strategy_signals(self, regime: str, runs: list[StrategyRun], best: CandidateSignal | None, entry: float) -> None:
         print(self._DIVIDER)
-        print(f"🧠 AI ANALYSIS — {self.settings.symbol}")
+        print(f"📐 STRATEGY SIGNALS — {self.settings.symbol}")
         print(self._DIVIDER)
-        print(f"📈 Trend:        {analysis.trend}")
-        print(f"💪 Confidence:   {analysis.confidence}%")
-        print(f"📰 News Impact:  {analysis.news_impact}")
+        print(f"🏷️  Market Regime: {regime}")
+        print(f"📊 Strategies Evaluated: {len(runs)}")
         print()
-        print(f"📊 Support:      {support}")
-        print(f"📊 Resistance:   {resistance}")
-        print()
+        for idx, run in enumerate(runs, start=1):
+            signal = run.signal
+            confidence = int(round(signal.confidence * 100))
+            blocked = "  [blocked by regime]" if run.blocked else ""
+            best_marker = " ✅ BEST" if best and best.strategy == signal.strategy and signal.signal != Signal.HOLD else ""
+            print(f"   {idx}. {signal.strategy:<22} → {signal.signal.value:<4} ({confidence:>2}%)" f"{best_marker}{blocked}")
+            if signal.signal in {Signal.BUY, Signal.SELL}:
+                sl = entry - signal.sl_basis if signal.signal == Signal.BUY else entry + signal.sl_basis
+                tp = entry + signal.tp_basis if signal.signal == Signal.BUY else entry - signal.tp_basis
+                print(f"      Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
+                print(f"      Reason: {signal.rationale}")
+        print(self._DIVIDER)
+
+    def _log_ai_filter(self, result: FilterResult, signal: CandidateSignal) -> None:
+        print(self._DIVIDER)
+        print(f"🧠 AI FILTER — Evaluating: {signal.strategy} {signal.signal.value}")
+        print(self._DIVIDER)
+        decision_icon = "✅" if result.decision == "APPROVE" else "❌"
+        print(f"📋 Decision:     {result.decision} {decision_icon}")
+        print(f"💪 Confidence:   {result.confidence}%")
+        print(f"📰 News Impact:  {result.news_impact}")
         print("⚠️  Risk Factors:")
-        for factor in risk_factors:
-            print(f"   • {factor}")
-        print()
-        print(f"🎯 ACTION:       {signal_decision.signal.value}")
-        print(f"   Entry:        {signal_decision.entry:.2f}" if signal_decision.entry is not None else "   Entry:        -")
-        print(f"   Stop Loss:    {signal_decision.sl:.2f}" if signal_decision.sl is not None else "   Stop Loss:    -")
-        print(f"   Take Profit:  {signal_decision.tp:.2f}" if signal_decision.tp is not None else "   Take Profit:  -")
-        print()
+        if result.risk_factors:
+            for factor in result.risk_factors:
+                print(f"   • {factor}")
+        else:
+            print("   • None significant")
         print("💬 Reasoning:")
-        print(f"   {analysis.reasoning}")
+        print(f"   {result.reasoning}")
         print(self._DIVIDER)
 
     def _log_trade_executed(
@@ -97,12 +132,15 @@ class BotRunner:
         sl: float,
         tp: float,
         result: OrderResult,
+        strategy: str | None = None,
     ) -> None:
         mode_label = "Paper Mode" if self.settings.mode == "paper" else "Real Mode"
         risk = abs(entry - sl) * lot
         print(self._DIVIDER)
         print(f"✅ TRADE EXECUTED ({mode_label})")
         print(self._DIVIDER)
+        if strategy:
+            print(f"   Strategy:     {strategy}")
         print(f"   Signal:       {signal_decision.signal.value}")
         print(f"   Entry:        {entry:.2f}")
         print(f"   Stop Loss:    {sl:.2f}")
@@ -123,6 +161,39 @@ class BotRunner:
         print("🛡️ BLOCKED by Risk Guardrails")
         print(f"   Reason: {reason}")
         print(self._DIVIDER)
+
+    def _signal_to_trade_signal(self, signal: CandidateSignal, entry: float, sl: float, tp: float) -> TradeSignal:
+        return TradeSignal(
+            signal=signal.signal,
+            confidence=int(max(0, min(100, round(signal.confidence * 100)))),
+            reasoning=signal.rationale,
+            entry=entry,
+            sl=sl,
+            tp=tp,
+        )
+
+    def _analysis_from_filter(
+        self,
+        trend: str,
+        result: FilterResult,
+        trade_signal: TradeSignal,
+        action: Signal,
+        reasoning: str,
+    ) -> AIAnalysis:
+        return AIAnalysis(
+            trend=trend,
+            support_levels=[],
+            resistance_levels=[],
+            risk_factors=result.risk_factors,
+            news_impact=result.news_impact,
+            confidence=result.confidence,
+            action=action,
+            reasoning=reasoning,
+            entry=trade_signal.entry,
+            sl=trade_signal.sl,
+            tp=trade_signal.tp,
+            raw=result.raw,
+        )
 
     def run_once(self) -> None:
         self.logger.info("Run started", extra={"extra_data": {"mode": self.settings.mode, "symbol": self.settings.symbol}})
@@ -146,22 +217,53 @@ class BotRunner:
             recent_history = self.memory.recent_trades(limit=20)
             performance = self.memory.performance_summary()
 
-            self.logger.info("Requesting AI analysis")
-            analysis = self.analyzer.analyze(
+            m15_bars = market_data.get("M15", {}).get("candles", [])
+            if not m15_bars:
+                self._log_hold("No M15 candles")
+                return
+
+            regime, runs = self.orchestrator.evaluate_with_details(m15_bars, multi_tf_data=market_data)
+            best = self.orchestrator.best_signal(m15_bars, multi_tf_data=market_data)
+            entry_hint = float(m15_bars[-1]["close"])
+            self._log_strategy_signals(regime, runs, best, entry_hint)
+
+            if best is None:
+                self._log_hold("No strategy signal")
+                return
+
+            sl_hint = entry_hint - best.sl_basis if best.signal == Signal.BUY else entry_hint + best.sl_basis
+            tp_hint = entry_hint + best.tp_basis if best.signal == Signal.BUY else entry_hint - best.tp_basis
+            candidate_payload = {
+                "strategy": best.strategy,
+                "signal": best.signal.value,
+                "confidence": int(max(0, min(100, round(best.confidence * 100)))),
+                "rationale": best.rationale,
+                "entry": entry_hint,
+                "sl": sl_hint,
+                "tp": tp_hint,
+            }
+
+            filter_result = self.ai_filter.evaluate(
                 symbol=self.settings.symbol,
+                candidate_signal=candidate_payload,
                 timeframes=market_data,
                 news=news,
                 trade_history=recent_history,
                 performance_summary=performance,
             )
-            signal_decision = self.signal_generator.generate(analysis)
-            self._log_analysis(analysis, signal_decision)
-            self.alerter.send_signal_analysis(self.settings.symbol, analysis, signal_decision)
+            self._log_ai_filter(filter_result, best)
 
-            if signal_decision.signal == Signal.HOLD:
-                self._log_hold(signal_decision.reasoning)
-                self.logger.info("AI returned HOLD", extra={"extra_data": {"reason": signal_decision.reasoning}})
-                self.memory.record_analysis(analysis, signal_decision, outcome="HOLD", pnl=0.0)
+            if filter_result.decision == "REJECT":
+                self._log_hold(f"AI rejected: {filter_result.reasoning}")
+                hold_signal = TradeSignal(Signal.HOLD, filter_result.confidence, filter_result.reasoning, None, None, None)
+                analysis = self._analysis_from_filter(
+                    trend=regime.lower(),
+                    result=filter_result,
+                    trade_signal=hold_signal,
+                    action=Signal.HOLD,
+                    reasoning=filter_result.reasoning,
+                )
+                self.memory.record_analysis(analysis, hold_signal, outcome="HOLD", pnl=0.0)
                 return
 
             positions = self.data.open_positions(self.settings.symbol)
@@ -176,54 +278,87 @@ class BotRunner:
                 open_positions=len(positions),
                 daily_realized_pnl=daily_pnl,
                 symbol=self.settings.symbol,
-                direction=signal_decision.signal.value,
+                direction=best.signal.value,
             )
             if not allowed_trade:
                 self._log_blocked(reason)
                 self.logger.warning("Guardrail blocked signal", extra={"extra_data": {"reason": reason}})
-                self.memory.record_analysis(analysis, signal_decision, outcome="BLOCKED", pnl=0.0)
+                blocked_signal = TradeSignal(
+                    best.signal,
+                    int(max(0, min(100, round(best.confidence * 100)))),
+                    reason,
+                    None,
+                    None,
+                    None,
+                )
+                blocked_analysis = self._analysis_from_filter(
+                    trend=regime.lower(),
+                    result=filter_result,
+                    trade_signal=blocked_signal,
+                    action=Signal.HOLD,
+                    reasoning=reason,
+                )
+                self.memory.record_analysis(blocked_analysis, blocked_signal, outcome="BLOCKED", pnl=0.0)
                 return
 
             tick = self.data.get_tick(self.settings.symbol)
-            entry = float(signal_decision.entry or (tick.ask if signal_decision.signal == Signal.BUY else tick.bid))
-            sl = float(signal_decision.sl or 0.0)
-            tp = float(signal_decision.tp or 0.0)
+            entry = float(tick.ask if best.signal == Signal.BUY else tick.bid)
+            sl = float(filter_result.suggested_sl) if filter_result.suggested_sl is not None else (
+                entry - best.sl_basis if best.signal == Signal.BUY else entry + best.sl_basis
+            )
+            tp = float(filter_result.suggested_tp) if filter_result.suggested_tp is not None else (
+                entry + best.tp_basis if best.signal == Signal.BUY else entry - best.tp_basis
+            )
+            if best.signal == Signal.BUY and not (sl < entry < tp):
+                self._log_hold("Invalid BUY SL/TP after filter")
+                return
+            if best.signal == Signal.SELL and not (tp < entry < sl):
+                self._log_hold("Invalid SELL SL/TP after filter")
+                return
             lot = calculate_position_size(
                 account_balance=balance,
                 risk_per_trade_pct=min(self.settings.risk.risk_per_trade_pct, self.settings.risk.max_risk_per_trade_pct),
                 entry_price=entry,
                 sl_price=sl,
             )
+            signal_decision = self._signal_to_trade_signal(best, entry, sl, tp)
 
             request = OrderRequest(
                 symbol=self.settings.symbol,
-                signal=signal_decision.signal,
+                signal=best.signal,
                 lot=lot,
                 price=entry,
                 sl=sl,
                 tp=tp,
                 deviation=self.settings.execution.deviation,
-                comment="goldbot:ai-first",
+                comment=f"goldbot:hybrid:{best.strategy}",
             )
             result = self.executor.place_order(request)
-            self._log_trade_executed(signal_decision, lot, entry, sl, tp, result)
+            self._log_trade_executed(signal_decision, lot, entry, sl, tp, result, strategy=best.strategy)
             now = datetime.now(tz=timezone.utc)
-            self.guardrails.register_entry(now, self.settings.symbol, signal_decision.signal.value)
+            self.guardrails.register_entry(now, self.settings.symbol, best.signal.value)
 
             self.journal.record(
                 {
                     "timestamp": now.isoformat(),
-                    "strategy": "ai_first",
-                    "regime": analysis.trend,
-                    "signal": signal_decision.signal.value,
+                    "strategy": best.strategy,
+                    "regime": regime,
+                    "signal": best.signal.value,
                     "entry": entry,
                     "sl": sl,
                     "tp": tp,
                     "lot": lot,
                     "outcome": "PLACED" if result.ok else "REJECTED",
                     "pnl": 0.0,
-                    "reason": result.message,
+                    "reason": filter_result.reasoning,
                 }
+            )
+            analysis = self._analysis_from_filter(
+                trend=regime.lower(),
+                result=filter_result,
+                trade_signal=signal_decision,
+                action=best.signal,
+                reasoning=filter_result.reasoning,
             )
             self.memory.record_analysis(
                 analysis,
