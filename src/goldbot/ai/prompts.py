@@ -74,6 +74,7 @@ def _summarize_bars(candles: list[dict], count: int = 100) -> dict:
     swing_low = min(lows)
     move = swing_high - swing_low
     last = recent[-1]
+    price_position_pct = 0.0 if move <= 0 else ((float(last["close"]) - swing_low) / move) * 100
 
     bullish_candles = sum(1 for c in recent if float(c["close"]) > float(c["open"]))
     bearish_candles = len(recent) - bullish_candles
@@ -83,10 +84,10 @@ def _summarize_bars(candles: list[dict], count: int = 100) -> dict:
         "swing_low": round(swing_low, 2),
         "range": round(move, 2),
         "current_price": round(float(last["close"]), 2),
-        "price_position_pct": round((float(last["close"]) - swing_low) / max(move, 0.01) * 100, 1),
+        "price_position_pct": round(price_position_pct, 1),
         "bullish_candles": bullish_candles,
         "bearish_candles": bearish_candles,
-        "bullish_ratio_pct": round(bullish_candles / max(len(recent), 1) * 100, 1),
+        "bullish_ratio_pct": round(bullish_candles / len(recent) * 100, 1),
     }
 
     if move > 0:

@@ -26,11 +26,11 @@ class PivotBounceStrategy(Strategy):
         pivot = float(last["pivot"])
         s1 = float(last["pivot_s1"])
         r1 = float(last["pivot_r1"])
-        level_zone = 0.3 * atr
+        proximity_zone = 0.3 * atr
         trend_up = float(last["ema_fast"]) >= float(last["ema_slow"])
         trend_down = float(last["ema_fast"]) <= float(last["ema_slow"])
 
-        if prev_close <= s1 + level_zone and close > s1 and close > prev_close:
+        if prev_close <= s1 + proximity_zone and close > s1 and close > prev_close:
             confidence = 0.75 if trend_up else 0.6
             return CandidateSignal(
                 self.name,
@@ -40,7 +40,7 @@ class PivotBounceStrategy(Strategy):
                 max(0.1, close - (s1 - 0.5 * atr)),
                 max(0.1, pivot - close),
             )
-        if prev_close >= r1 - level_zone and close < r1 and close < prev_close:
+        if prev_close >= r1 - proximity_zone and close < r1 and close < prev_close:
             confidence = 0.75 if trend_down else 0.6
             return CandidateSignal(
                 self.name,
