@@ -1,6 +1,7 @@
 from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
 from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
+from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
 from goldbot.strategies.momentum import MomentumStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
@@ -15,6 +16,7 @@ __all__ = [
     "ATRVolExpansionStrategy",
     "BreakoutLondonNYStrategy",
     "FibonacciPullbackStrategy",
+    "LiquiditySweepStrategy",
     "MeanReversionRSIBBStrategy",
     "MomentumStrategy",
     "MTFConfluenceStrategy",

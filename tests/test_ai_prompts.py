@@ -59,6 +59,29 @@ class AIPromptTests(unittest.TestCase):
         self.assertIn("latest_indicators", payload["timeframes"]["M15"])
         self.assertIn("candles", payload["timeframes"]["M15"])
 
+    def test_build_filter_prompt_includes_strategy_consensus_and_conflict_flag(self) -> None:
+        all_signals = [
+            {"strategy": "momentum", "signal": "BUY", "confidence": 60, "rationale": "bull", "blocked": False},
+            {"strategy": "fibonacci_pullback", "signal": "BUY", "confidence": 56, "rationale": "fib", "blocked": False},
+            {"strategy": "atr_vol_expansion", "signal": "SELL", "confidence": 60, "rationale": "atr", "blocked": False},
+            {"strategy": "pivot_bounce", "signal": "HOLD", "confidence": 0, "rationale": "none", "blocked": False},
+        ]
+        prompt = build_filter_prompt(
+            symbol="XAUUSD.m",
+            candidate={"strategy": "atr_vol_expansion", "signal": "SELL", "all_strategy_signals": all_signals},
+            timeframes={"M15": {"trend": "bearish", "candles": self._candles(20)}},
+            news=[],
+            trade_history=[],
+            performance_summary={},
+        )
+        payload = json.loads(prompt.split("SIGNAL_CONTEXT=", 1)[1])
+        self.assertEqual(payload["strategy_consensus"]["buy_count"], 2)
+        self.assertEqual(payload["strategy_consensus"]["sell_count"], 1)
+        self.assertEqual(payload["strategy_consensus"]["hold_count"], 1)
+        self.assertTrue(payload["strategy_consensus"]["conflicting"])
+        self.assertEqual(payload["strategy_signal"]["all_strategy_signals"], all_signals)
+        self.assertIn("consensus across all strategy signals", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

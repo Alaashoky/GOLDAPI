@@ -36,6 +36,7 @@ class OrchestratorTests(unittest.TestCase):
     def test_regime_selector_allows_momentum(self) -> None:
         selector = RegimeSelector()
         self.assertIn("momentum", selector.allowed_strategies("RANGING"))
+        self.assertIn("liquidity_sweep", selector.allowed_strategies("RANGING"))
 
     def test_best_signal_sorted_by_confidence(self) -> None:
         selector = RegimeSelector()

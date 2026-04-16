@@ -137,6 +137,20 @@ def build_filter_prompt(
     performance_summary: dict,
 ) -> str:
     """Build prompt for AI to evaluate a strategy signal."""
+    strategy_signals = candidate.get("all_strategy_signals", [])
+    strategy_consensus: dict[str, int | bool | list[dict]] | None = None
+    if strategy_signals:
+        buy_count = sum(1 for s in strategy_signals if s.get("signal") == "BUY")
+        sell_count = sum(1 for s in strategy_signals if s.get("signal") == "SELL")
+        hold_count = sum(1 for s in strategy_signals if s.get("signal") == "HOLD")
+        strategy_consensus = {
+            "buy_count": buy_count,
+            "sell_count": sell_count,
+            "hold_count": hold_count,
+            "conflicting": buy_count > 0 and sell_count > 0,
+            "signals": strategy_signals,
+        }
+
     market_context = {}
     for tf, frame in timeframes.items():
         candles = frame.get("candles", [])
@@ -163,6 +177,7 @@ def build_filter_prompt(
     payload = {
         "symbol": symbol,
         "strategy_signal": candidate,
+        "strategy_consensus": strategy_consensus,
         "market_context": market_context,
         "news": news,
         "recent_trade_history": trade_history,
@@ -174,7 +189,8 @@ def build_filter_prompt(
         "You have the last 10 candles per timeframe plus a statistical summary of the last 100 candles "
         "including Fibonacci levels, swing high/low, trend direction, and key indicators. "
         "Consider: trend alignment across timeframes, news impact, recent trade performance, "
-        "Fibonacci levels, support/resistance zones, and risk factors. "
+        "Fibonacci levels, support/resistance zones, risk factors, "
+        "AND the consensus across all strategy signals — if strategies conflict, be extra cautious. "
         "Only APPROVE if the setup is solid and the risk/reward is favorable.\n"
         f"SIGNAL_CONTEXT={json.dumps(payload, ensure_ascii=False)}"
     )

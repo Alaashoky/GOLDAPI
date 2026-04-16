@@ -23,6 +23,7 @@ from goldbot.risk.position_sizing import calculate_position_size
 from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
 from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
+from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
 from goldbot.strategies.momentum import MomentumStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
@@ -68,6 +69,7 @@ class BotRunner:
                 MeanReversionRSIBBStrategy(),
                 PivotBounceStrategy(),
                 MomentumStrategy(),
+                LiquiditySweepStrategy(),
             ],
             regime_selector=self.regime_selector,
         )
@@ -237,6 +239,18 @@ class BotRunner:
 
             sl_hint = entry_hint - best.sl_basis if best.signal == Signal.BUY else entry_hint + best.sl_basis
             tp_hint = entry_hint + best.tp_basis if best.signal == Signal.BUY else entry_hint - best.tp_basis
+            all_signals = []
+            for run in runs:
+                sig = run.signal
+                all_signals.append(
+                    {
+                        "strategy": sig.strategy,
+                        "signal": sig.signal.value,
+                        "confidence": int(round(sig.confidence * 100)),
+                        "rationale": sig.rationale,
+                        "blocked": run.blocked,
+                    }
+                )
             candidate_payload = {
                 "strategy": best.strategy,
                 "signal": best.signal.value,
@@ -245,6 +259,7 @@ class BotRunner:
                 "entry": entry_hint,
                 "sl": sl_hint,
                 "tp": tp_hint,
+                "all_strategy_signals": all_signals,
             }
 
             filter_result = self.ai_filter.evaluate(

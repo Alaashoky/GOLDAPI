@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -111,6 +112,78 @@ class RunnerLoggingTests(unittest.TestCase):
         text = output.getvalue()
         self.assertIn("🛡️ BLOCKED by Risk Guardrails", text)
         self.assertIn("Reason: Max daily loss reached", text)
+
+    @patch("goldbot.app.runner.fetch_multi_timeframe_data")
+    def test_run_once_passes_all_strategy_signals_to_ai_filter(self, mock_fetch_multi_timeframe_data) -> None:
+        runner = BotRunner.__new__(BotRunner)
+        runner.settings = SimpleNamespace(
+            mode="paper",
+            symbol="XAUUSD.m",
+            timeframes=["M15"],
+            ai=SimpleNamespace(analysis_bars=200),
+        )
+        runner.logger = SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None, exception=lambda *a, **k: None)
+        runner.data = SimpleNamespace(
+            mt5=object(),
+            initialize=lambda: None,
+            shutdown=lambda: None,
+            ensure_symbol=lambda _symbol: None,
+        )
+        runner.executor = SimpleNamespace(bind_mt5=lambda _mt5: None)
+        runner.news_feed = SimpleNamespace(fetch=lambda limit=15: [])
+        recorded = {"candidate": None}
+        runner.ai_filter = SimpleNamespace(
+            evaluate=lambda **kwargs: (
+                recorded.update({"candidate": kwargs["candidate_signal"]})
+                or FilterResult("REJECT", 60, "No", [], "none", None, None)
+            )
+        )
+        runner.memory = SimpleNamespace(
+            recent_trades=lambda limit=20: [],
+            performance_summary=lambda: {},
+            record_analysis=lambda *a, **k: None,
+        )
+        runner.alerter = SimpleNamespace()
+        runner.journal = SimpleNamespace()
+        runner.guardrails = SimpleNamespace()
+        best = CandidateSignal("momentum", Signal.BUY, 0.6, "Bullish momentum", 5.0, 8.0)
+        runs = [
+            StrategyRun(strategy="momentum", signal=best, blocked=False),
+            StrategyRun(
+                strategy="atr_vol_expansion",
+                signal=CandidateSignal("atr_vol_expansion", Signal.SELL, 0.6, "Bearish expansion", 5.0, 8.0),
+                blocked=False,
+            ),
+        ]
+        runner.orchestrator = SimpleNamespace(
+            evaluate_with_details=lambda bars, multi_tf_data=None: ("RANGING", runs),
+            best_signal=lambda bars, multi_tf_data=None: best,
+        )
+        mock_fetch_multi_timeframe_data.return_value = {
+            "M15": {
+                "candles": [
+                    {
+                        "time": 1,
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "atr": 1.0,
+                        "ema_fast": 101.0,
+                        "ema_slow": 100.0,
+                    }
+                ]
+            }
+        }
+
+        runner.run_once()
+
+        all_signals = recorded["candidate"]["all_strategy_signals"]
+        self.assertEqual(len(all_signals), 2)
+        self.assertEqual(all_signals[0]["strategy"], "momentum")
+        self.assertEqual(all_signals[0]["signal"], "BUY")
+        self.assertEqual(all_signals[1]["strategy"], "atr_vol_expansion")
+        self.assertEqual(all_signals[1]["signal"], "SELL")
 
 
 if __name__ == "__main__":
