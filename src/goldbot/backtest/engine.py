@@ -79,7 +79,7 @@ class BacktestEngine:
                 sl_hit = float(current["low"]) <= position["sl"] if side == Signal.BUY.value else float(current["high"]) >= position["sl"]
                 tp_hit = float(current["high"]) >= position["tp"] if side == Signal.BUY.value else float(current["low"]) <= position["tp"]
                 if sl_hit or tp_hit:
-                    # Worst-case tiebreaker: if both touched in same candle, assume SL first.
+                    # If both SL and TP are touched in the same candle, SL takes precedence.
                     exit_price = position["sl"] if sl_hit else position["tp"]
                     outcome = "SL" if sl_hit else "TP"
                     pnl = self._pnl(side, position["entry"], exit_price, position["lot"], contract_size)
