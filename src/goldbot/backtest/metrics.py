@@ -35,6 +35,12 @@ def calculate_metrics(trades: list[dict], equity_curve: list[float]) -> dict[str
     avg = mean(pnl_values)
     sd = pstdev(pnl_values) if len(pnl_values) > 1 else 0.0
     sharpe = (avg / sd) * sqrt(len(pnl_values)) if sd > 0 else 0.0
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    else:
+        profit_factor = float("inf") if gross_profit > 0 else 0.0
 
     return {
         "trades": float(len(trades)),
@@ -42,9 +48,9 @@ def calculate_metrics(trades: list[dict], equity_curve: list[float]) -> dict[str
         "expectancy": avg,
         "max_drawdown": max_dd,
         "sharpe": sharpe,
-        "gross_profit": sum(wins),
-        "gross_loss": abs(sum(losses)),
+        "gross_profit": gross_profit,
+        "gross_loss": gross_loss,
         "total_pnl": sum(pnl_values),
-        "profit_factor": (sum(wins) / abs(sum(losses))) if losses and abs(sum(losses)) > 0 else (float("inf") if wins else 0.0),
+        "profit_factor": profit_factor,
         "avg_r": mean(r_values) if r_values else 0.0,
     }
