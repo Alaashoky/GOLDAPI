@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+import time
 import sys
 import unittest
 
@@ -43,6 +44,36 @@ class AITradeFilterTests(unittest.TestCase):
             performance_summary={},
         )
         self.assertEqual(result.decision, "REJECT")
+
+    def test_evaluate_rejects_on_timeout_fail_closed(self) -> None:
+        trade_filter = AITradeFilter(api_key=TEST_API_KEY, model="gpt-4o-mini", timeout_seconds=0.01, retries=0)
+        trade_filter.client = SimpleNamespace()
+        trade_filter._invoke = lambda _prompt: (time.sleep(0.1) or '{"decision":"APPROVE"}')
+        result = trade_filter.evaluate(
+            symbol="XAUUSD.m",
+            candidate_signal={"strategy": "trend_ema_pullback", "signal": "BUY"},
+            timeframes={},
+            news=[],
+            trade_history=[],
+            performance_summary={},
+        )
+        self.assertEqual(result.decision, "REJECT")
+        self.assertIn("timeout", result.reasoning.lower())
+
+    def test_evaluate_rejects_on_error_fail_closed(self) -> None:
+        trade_filter = AITradeFilter(api_key=TEST_API_KEY, model="gpt-4o-mini", retries=0)
+        trade_filter.client = SimpleNamespace()
+        trade_filter._invoke = lambda _prompt: (_ for _ in ()).throw(RuntimeError("api down"))
+        result = trade_filter.evaluate(
+            symbol="XAUUSD.m",
+            candidate_signal={"strategy": "breakout_london_ny", "signal": "SELL"},
+            timeframes={},
+            news=[],
+            trade_history=[],
+            performance_summary={},
+        )
+        self.assertEqual(result.decision, "REJECT")
+        self.assertIn("api down", result.reasoning.lower())
 
     def test_invoke_requests_json_object_response_format(self) -> None:
         class FakeCompletions:

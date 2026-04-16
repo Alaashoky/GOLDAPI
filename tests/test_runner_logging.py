@@ -23,7 +23,7 @@ class RunnerLoggingTests(unittest.TestCase):
     @patch("goldbot.app.runner.AITradeFilter", return_value=SimpleNamespace())
     @patch("goldbot.app.runner.MT5Executor", return_value=SimpleNamespace())
     @patch("goldbot.app.runner.MT5DataAdapter", return_value=SimpleNamespace())
-    def test_runner_registers_only_liquidity_sweep_strategy(self, *_mocks) -> None:
+    def test_runner_registers_regime_strategies(self, *_mocks) -> None:
         settings = SimpleNamespace(
             mt5_login=0,
             mt5_password="",
@@ -46,8 +46,10 @@ class RunnerLoggingTests(unittest.TestCase):
             ),
         )
         runner = BotRunner(settings)
-        self.assertEqual(len(runner.orchestrator.strategies), 1)
-        self.assertEqual(runner.orchestrator.strategies[0].__class__.__name__, "LiquiditySweepStrategy")
+        self.assertEqual(len(runner.orchestrator.strategies), 3)
+        self.assertEqual(runner.orchestrator.strategies[0].__class__.__name__, "TrendEMAPullbackStrategy")
+        self.assertEqual(runner.orchestrator.strategies[1].__class__.__name__, "BreakoutLondonNYStrategy")
+        self.assertEqual(runner.orchestrator.strategies[2].__class__.__name__, "MeanReversionRSIBBStrategy")
 
     def _runner(self) -> BotRunner:
         runner = BotRunner.__new__(BotRunner)
@@ -163,7 +165,11 @@ class RunnerLoggingTests(unittest.TestCase):
             shutdown=lambda: None,
             ensure_symbol=lambda _symbol: None,
         )
-        runner.executor = SimpleNamespace(bind_mt5=lambda _mt5: None)
+        place_order_calls = {"count": 0}
+        runner.executor = SimpleNamespace(
+            bind_mt5=lambda _mt5: None,
+            place_order=lambda _request: place_order_calls.update({"count": place_order_calls["count"] + 1}),
+        )
         runner.news_feed = SimpleNamespace(fetch=lambda limit=15: [])
         recorded = {"candidate": None}
         runner.ai_filter = SimpleNamespace(
@@ -218,6 +224,72 @@ class RunnerLoggingTests(unittest.TestCase):
         self.assertEqual(all_signals[0]["signal"], "BUY")
         self.assertEqual(all_signals[1]["strategy"], "atr_vol_expansion")
         self.assertEqual(all_signals[1]["signal"], "SELL")
+        self.assertEqual(place_order_calls["count"], 0)
+
+    @patch("goldbot.app.runner.fetch_multi_timeframe_data")
+    def test_run_once_executes_order_on_ai_approve(self, mock_fetch_multi_timeframe_data) -> None:
+        runner = BotRunner.__new__(BotRunner)
+        runner.settings = SimpleNamespace(
+            mode="paper",
+            symbol="XAUUSD.m",
+            timeframes=["M15"],
+            ai=SimpleNamespace(analysis_bars=200),
+            risk=SimpleNamespace(risk_per_trade_pct=0.5, max_risk_per_trade_pct=1.0),
+            execution=SimpleNamespace(deviation=20),
+        )
+        runner.logger = SimpleNamespace(info=lambda *a, **k: None, warning=lambda *a, **k: None, exception=lambda *a, **k: None)
+        runner.data = SimpleNamespace(
+            mt5=object(),
+            initialize=lambda: None,
+            shutdown=lambda: None,
+            ensure_symbol=lambda _symbol: None,
+            open_positions=lambda _symbol: [],
+            account_info=lambda: SimpleNamespace(balance=10000.0, equity=10000.0),
+            get_tick=lambda _symbol: SimpleNamespace(ask=100.2, bid=100.0),
+        )
+        recorded_orders: list[object] = []
+        runner.executor = SimpleNamespace(
+            bind_mt5=lambda _mt5: None,
+            place_order=lambda request: (recorded_orders.append(request) or OrderResult(ok=True, message="placed")),
+        )
+        runner.news_feed = SimpleNamespace(fetch=lambda limit=15: [])
+        runner.ai_filter = SimpleNamespace(
+            evaluate=lambda **kwargs: FilterResult("APPROVE", 80, "Looks good", [], "low", 99.0, 102.0)
+        )
+        runner.memory = SimpleNamespace(
+            recent_trades=lambda limit=20: [],
+            performance_summary=lambda: {},
+            record_analysis=lambda *a, **k: None,
+        )
+        runner.alerter = SimpleNamespace(send_execution_confirmation=lambda *a, **k: None)
+        runner.journal = SimpleNamespace(record=lambda *_a, **_k: None)
+        runner.guardrails = SimpleNamespace(
+            account_start_balance=10000.0,
+            can_trade=lambda **kwargs: (True, ""),
+            register_entry=lambda *a, **k: None,
+        )
+        best = CandidateSignal("trend_ema_pullback", Signal.BUY, 0.7, "Trend pullback", 1.0, 2.0)
+        runs = [StrategyRun(strategy="trend_ema_pullback", signal=best, blocked=False)]
+        runner.orchestrator = SimpleNamespace(evaluate_with_details=lambda bars, multi_tf_data=None: ("TRENDING", runs))
+        mock_fetch_multi_timeframe_data.return_value = {
+            "M15": {
+                "candles": [
+                    {
+                        "time": 1,
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.5,
+                        "atr": 1.0,
+                        "ema_fast": 101.0,
+                        "ema_slow": 100.0,
+                    }
+                ]
+            }
+        }
+
+        runner.run_once()
+        self.assertEqual(len(recorded_orders), 1)
 
 
 if __name__ == "__main__":

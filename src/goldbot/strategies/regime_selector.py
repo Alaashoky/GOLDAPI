@@ -19,22 +19,15 @@ class RegimeSelector:
         trend_strength = abs(float(last["ema_fast"]) - float(last["ema_slow"])) / close
 
         if atr_ratio >= self.high_vol_threshold:
-            return "HIGH_VOL"
+            return "BREAKOUT"
         if trend_strength >= self.trend_threshold:
             return "TRENDING"
         return "RANGING"
 
     def allowed_strategies(self, regime: str) -> set[str]:
-        return {
-            "trend_ema_pullback",
-            "breakout_london_ny",
-            "atr_vol_expansion",
-            "fibonacci_pullback",
-            "session_breakout",
-            "order_block",
-            "mtf_confluence",
-            "mean_reversion_rsi_bb",
-            "pivot_bounce",
-            "momentum",
-            "liquidity_sweep",
+        mapping = {
+            "TRENDING": {"trend_ema_pullback"},
+            "BREAKOUT": {"breakout_london_ny"},
+            "RANGING": {"mean_reversion_rsi_bb"},
         }
+        return mapping.get(regime, set())

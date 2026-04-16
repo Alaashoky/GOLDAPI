@@ -20,9 +20,11 @@ from goldbot.ops.journal import TradeJournal
 from goldbot.ops.logger import get_logger
 from goldbot.risk.guardrails import RiskGuardrails
 from goldbot.risk.position_sizing import calculate_position_size
-from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
+from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
+from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
 from goldbot.strategies.orchestrator import StrategyOrchestrator, StrategyRun
 from goldbot.strategies.regime_selector import RegimeSelector
+from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 
 
 class BotRunner:
@@ -49,7 +51,9 @@ class BotRunner:
         self.regime_selector = RegimeSelector()
         self.orchestrator = StrategyOrchestrator(
             strategies=[
-                LiquiditySweepStrategy(),
+                TrendEMAPullbackStrategy(),
+                BreakoutLondonNYStrategy(),
+                MeanReversionRSIBBStrategy(),
             ],
             regime_selector=self.regime_selector,
         )
@@ -75,6 +79,8 @@ class BotRunner:
         print(f"📐 STRATEGY SIGNALS — {self.settings.symbol}")
         print(self._DIVIDER)
         print(f"🏷️  Market Regime: {regime}")
+        if best and best.signal in {Signal.BUY, Signal.SELL}:
+            print(f"🎯 Selected Strategy: {best.strategy} ({best.signal.value})")
         print(f"📊 Strategies Evaluated: {len(runs)}")
         print()
         for idx, run in enumerate(runs, start=1):
@@ -209,9 +215,22 @@ class BotRunner:
                 return
 
             regime, runs = self.orchestrator.evaluate_with_details(m15_bars, multi_tf_data=market_data)
-            best = self.orchestrator.best_signal(m15_bars, multi_tf_data=market_data)
+            best = next(
+                (run.signal for run in runs if not run.blocked and run.signal.signal in {Signal.BUY, Signal.SELL}),
+                None,
+            )
             entry_hint = float(m15_bars[-1]["close"])
             self._log_strategy_signals(regime, runs, best, entry_hint)
+            self.logger.info(
+                "Regime strategy selection",
+                extra={
+                    "extra_data": {
+                        "regime": regime,
+                        "selected_strategy": best.strategy if best else None,
+                        "signal": best.signal.value if best else Signal.HOLD.value,
+                    }
+                },
+            )
 
             if best is None:
                 self._log_hold("No strategy signal")
@@ -251,6 +270,17 @@ class BotRunner:
                 performance_summary=performance,
             )
             self._log_ai_filter(filter_result, best)
+            self.logger.info(
+                "AI gate decision",
+                extra={
+                    "extra_data": {
+                        "strategy": best.strategy,
+                        "signal": best.signal.value,
+                        "decision": filter_result.decision,
+                        "reason": filter_result.reasoning,
+                    }
+                },
+            )
 
             if filter_result.decision == "REJECT":
                 self._log_hold(f"AI rejected: {filter_result.reasoning}")
