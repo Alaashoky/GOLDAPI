@@ -20,19 +20,9 @@ from goldbot.ops.journal import TradeJournal
 from goldbot.ops.logger import get_logger
 from goldbot.risk.guardrails import RiskGuardrails
 from goldbot.risk.position_sizing import calculate_position_size
-from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
-from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
-from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
 from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
-from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
-from goldbot.strategies.momentum import MomentumStrategy
-from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
 from goldbot.strategies.orchestrator import StrategyOrchestrator, StrategyRun
-from goldbot.strategies.order_block import OrderBlockStrategy
-from goldbot.strategies.pivot_bounce import PivotBounceStrategy
 from goldbot.strategies.regime_selector import RegimeSelector
-from goldbot.strategies.session_breakout import SessionBreakoutStrategy
-from goldbot.strategies.trend_ema_pullback import TrendEMAPullbackStrategy
 
 
 class BotRunner:
@@ -59,16 +49,6 @@ class BotRunner:
         self.regime_selector = RegimeSelector()
         self.orchestrator = StrategyOrchestrator(
             strategies=[
-                FibonacciPullbackStrategy(),
-                TrendEMAPullbackStrategy(),
-                OrderBlockStrategy(),
-                SessionBreakoutStrategy(),
-                MTFConfluenceStrategy(),
-                BreakoutLondonNYStrategy(),
-                ATRVolExpansionStrategy(),
-                MeanReversionRSIBBStrategy(),
-                PivotBounceStrategy(),
-                MomentumStrategy(),
                 LiquiditySweepStrategy(),
             ],
             regime_selector=self.regime_selector,

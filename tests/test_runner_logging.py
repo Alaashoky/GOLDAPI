@@ -15,6 +15,40 @@ from goldbot.strategies.orchestrator import StrategyRun
 
 
 class RunnerLoggingTests(unittest.TestCase):
+    @patch("goldbot.app.runner.RiskGuardrails", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.TradeJournal", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.TelegramAlerter", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.TradeMemory", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.NewsFeed", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.AITradeFilter", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.MT5Executor", return_value=SimpleNamespace())
+    @patch("goldbot.app.runner.MT5DataAdapter", return_value=SimpleNamespace())
+    def test_runner_registers_only_liquidity_sweep_strategy(self, *_mocks) -> None:
+        settings = SimpleNamespace(
+            mt5_login=0,
+            mt5_password="",
+            mt5_server="",
+            mode="paper",
+            execution=SimpleNamespace(deviation=20),
+            openai_api_key="",
+            ai=SimpleNamespace(model="gpt-4.1", timeout_seconds=10, retries=0),
+            finnhub_api_key="",
+            memory_db_path=":memory:",
+            telegram_bot_token="",
+            telegram_chat_id="",
+            journal=SimpleNamespace(csv_path="", sqlite_path=""),
+            risk=SimpleNamespace(
+                max_daily_loss_pct=5.0,
+                max_concurrent_positions=1,
+                max_consecutive_losses=3,
+                cooldown_minutes=30,
+                duplicate_window_seconds=60,
+            ),
+        )
+        runner = BotRunner(settings)
+        self.assertEqual(len(runner.orchestrator.strategies), 1)
+        self.assertEqual(runner.orchestrator.strategies[0].__class__.__name__, "LiquiditySweepStrategy")
+
     def _runner(self) -> BotRunner:
         runner = BotRunner.__new__(BotRunner)
         runner.settings = SimpleNamespace(symbol="XAUUSD.m", mode="paper")

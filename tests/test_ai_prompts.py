@@ -78,9 +78,27 @@ class AIPromptTests(unittest.TestCase):
         self.assertEqual(payload["strategy_consensus"]["buy_count"], 2)
         self.assertEqual(payload["strategy_consensus"]["sell_count"], 1)
         self.assertEqual(payload["strategy_consensus"]["hold_count"], 1)
+        self.assertEqual(payload["strategy_consensus"]["mode"], "multi_strategy")
         self.assertTrue(payload["strategy_consensus"]["conflicting"])
         self.assertEqual(payload["strategy_signal"]["all_strategy_signals"], all_signals)
-        self.assertIn("consensus across all strategy signals", prompt)
+        self.assertIn("PAPER MODE", prompt)
+
+    def test_build_filter_prompt_includes_paper_mode_and_empty_history_note(self) -> None:
+        all_signals = [{"strategy": "liquidity_sweep", "signal": "SELL", "confidence": 80, "rationale": "sweep", "blocked": False}]
+        prompt = build_filter_prompt(
+            symbol="XAUUSD.m",
+            candidate={"strategy": "liquidity_sweep", "signal": "SELL", "all_strategy_signals": all_signals},
+            timeframes={"M15": {"trend": "bearish", "candles": self._candles(20)}},
+            news=[],
+            trade_history=[],
+            performance_summary={},
+        )
+        payload = json.loads(prompt.split("SIGNAL_CONTEXT=", 1)[1])
+        self.assertEqual(payload["mode"], "PAPER")
+        self.assertIn("Approve more freely", payload["mode_note"])
+        self.assertIn("Do not penalize", payload["trade_history_note"])
+        self.assertEqual(payload["strategy_consensus"]["mode"], "single_strategy")
+        self.assertIn("Single strategy mode", payload["strategy_consensus_note"])
 
 
 if __name__ == "__main__":
