@@ -53,6 +53,12 @@ PYTHONPATH=src python -m goldbot.app.cli demo --loop
 PYTHONPATH=src python -m goldbot.app.cli live --loop
 ```
 
+Backtest (MT5 historical M15, Liquidity Sweep, next-open entry, spread points):
+
+```bash
+PYTHONPATH=src python -m goldbot.app.cli backtest --symbol XAUUSD.m --from-date 2025-04-16 --to-date 2026-04-16 --entry-model next_open --spread-points 60 --trades-csv backtest_trades.csv
+```
+
 ## Design Rules
 
 - AI is the decision maker.

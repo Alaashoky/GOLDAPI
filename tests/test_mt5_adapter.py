@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import unittest
@@ -56,6 +57,10 @@ class _FakeMT5:
         _ = symbol, tf, start_pos, bars
         return self._rates
 
+    def copy_rates_range(self, symbol, tf, start, end):
+        _ = symbol, tf, start, end
+        return self._rates
+
 
 class MT5AdapterRatesTests(unittest.TestCase):
     @staticmethod
@@ -98,6 +103,19 @@ class MT5AdapterRatesTests(unittest.TestCase):
         )
         self.assertIsInstance(rates[0]["time"], int)
         self.assertIsInstance(rates[0]["open"], float)
+
+    def test_get_rates_range_reuses_same_normalization(self) -> None:
+        adapter = self._adapter_with_rates(_FakeStructuredArrayWithNumpyScalars())
+
+        rates = adapter.get_rates_range(
+            "XAUUSD",
+            "M15",
+            datetime(2025, 4, 16, tzinfo=timezone.utc),
+            datetime(2026, 4, 16, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(rates[0]["open"], 2300.0)
+        self.assertEqual(rates[1]["close"], 2302.0)
 
 
 if __name__ == "__main__":
