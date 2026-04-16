@@ -138,7 +138,7 @@ def build_filter_prompt(
 ) -> str:
     """Build prompt for AI to evaluate a strategy signal."""
     strategy_signals = candidate.get("all_strategy_signals", [])
-    strategy_consensus: dict[str, object] | None = None
+    strategy_consensus: dict[str, int | bool | list[dict]] | None = None
     if strategy_signals:
         buy_count = sum(1 for s in strategy_signals if s.get("signal") == "BUY")
         sell_count = sum(1 for s in strategy_signals if s.get("signal") == "SELL")
