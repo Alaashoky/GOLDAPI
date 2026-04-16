@@ -114,8 +114,8 @@ def main() -> None:
                 info = adapter.symbol_info(symbol)
             finally:
                 adapter.shutdown()
-            inferred_point = float(getattr(info, "point", 0.0)) if info is not None else 0.0
-            point_value = args.point_value if args.point_value is not None else inferred_point
+            inferred_point_value = float(getattr(info, "point", 0.0)) if info is not None else 0.0
+            point_value = args.point_value if args.point_value is not None else inferred_point_value
             if point_value <= 0:
                 raise ValueError("Point value unavailable from MT5. Please pass --point-value.")
             contract_size = float(getattr(info, "trade_contract_size", 100.0) or 100.0)
