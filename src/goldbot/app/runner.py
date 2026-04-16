@@ -74,20 +74,26 @@ class BotRunner:
         signal.signal(signal.SIGINT, self._request_stop)
         signal.signal(signal.SIGTERM, self._request_stop)
 
-    def _log_strategy_signals(self, regime: str, runs: list[StrategyRun], best: CandidateSignal | None, entry: float) -> None:
+    def _log_strategy_signals(
+        self, regime: str, runs: list[StrategyRun], selected_signal: CandidateSignal | None, entry: float
+    ) -> None:
         print(self._DIVIDER)
         print(f"📐 STRATEGY SIGNALS — {self.settings.symbol}")
         print(self._DIVIDER)
         print(f"🏷️  Market Regime: {regime}")
-        if best and best.signal in {Signal.BUY, Signal.SELL}:
-            print(f"🎯 Selected Strategy: {best.strategy} ({best.signal.value})")
+        if selected_signal and selected_signal.signal in {Signal.BUY, Signal.SELL}:
+            print(f"🎯 Selected Strategy: {selected_signal.strategy} ({selected_signal.signal.value})")
         print(f"📊 Strategies Evaluated: {len(runs)}")
         print()
         for idx, run in enumerate(runs, start=1):
             signal = run.signal
             confidence = int(round(signal.confidence * 100))
             blocked = "  [blocked by regime]" if run.blocked else ""
-            best_marker = " ✅ BEST" if best and best.strategy == signal.strategy and signal.signal != Signal.HOLD else ""
+            best_marker = (
+                " ✅ BEST"
+                if selected_signal and selected_signal.strategy == signal.strategy and signal.signal != Signal.HOLD
+                else ""
+            )
             print(f"   {idx}. {signal.strategy:<22} → {signal.signal.value:<4} ({confidence:>2}%)" f"{best_marker}{blocked}")
             if signal.signal in {Signal.BUY, Signal.SELL}:
                 sl = entry - signal.sl_basis if signal.signal == Signal.BUY else entry + signal.sl_basis
@@ -215,29 +221,47 @@ class BotRunner:
                 return
 
             regime, runs = self.orchestrator.evaluate_with_details(m15_bars, multi_tf_data=market_data)
-            best = next(
-                (run.signal for run in runs if not run.blocked and run.signal.signal in {Signal.BUY, Signal.SELL}),
-                None,
-            )
+            active_signals = [run.signal for run in runs if not run.blocked and run.signal.signal in {Signal.BUY, Signal.SELL}]
+            if len(active_signals) > 1:
+                self.logger.warning(
+                    "Multiple active signals detected; skipping execution",
+                    extra={
+                        "extra_data": {
+                            "regime": regime,
+                            "strategies": [signal.strategy for signal in active_signals],
+                        }
+                    },
+                )
+                self._log_hold("Conflicting active strategy signals")
+                return
+            selected_signal = active_signals[0] if active_signals else None
             entry_hint = float(m15_bars[-1]["close"])
-            self._log_strategy_signals(regime, runs, best, entry_hint)
+            self._log_strategy_signals(regime, runs, selected_signal, entry_hint)
             self.logger.info(
                 "Regime strategy selection",
                 extra={
                     "extra_data": {
                         "regime": regime,
-                        "selected_strategy": best.strategy if best else None,
-                        "signal": best.signal.value if best else Signal.HOLD.value,
+                        "selected_strategy": selected_signal.strategy if selected_signal else None,
+                        "signal": selected_signal.signal.value if selected_signal else Signal.HOLD.value,
                     }
                 },
             )
 
-            if best is None:
+            if selected_signal is None:
                 self._log_hold("No strategy signal")
                 return
 
-            sl_hint = entry_hint - best.sl_basis if best.signal == Signal.BUY else entry_hint + best.sl_basis
-            tp_hint = entry_hint + best.tp_basis if best.signal == Signal.BUY else entry_hint - best.tp_basis
+            sl_hint = (
+                entry_hint - selected_signal.sl_basis
+                if selected_signal.signal == Signal.BUY
+                else entry_hint + selected_signal.sl_basis
+            )
+            tp_hint = (
+                entry_hint + selected_signal.tp_basis
+                if selected_signal.signal == Signal.BUY
+                else entry_hint - selected_signal.tp_basis
+            )
             all_signals = []
             for run in runs:
                 sig = run.signal
@@ -251,10 +275,10 @@ class BotRunner:
                     }
                 )
             candidate_payload = {
-                "strategy": best.strategy,
-                "signal": best.signal.value,
-                "confidence": int(max(0, min(100, round(best.confidence * 100)))),
-                "rationale": best.rationale,
+                "strategy": selected_signal.strategy,
+                "signal": selected_signal.signal.value,
+                "confidence": int(max(0, min(100, round(selected_signal.confidence * 100)))),
+                "rationale": selected_signal.rationale,
                 "entry": entry_hint,
                 "sl": sl_hint,
                 "tp": tp_hint,
@@ -269,13 +293,13 @@ class BotRunner:
                 trade_history=recent_history,
                 performance_summary=performance,
             )
-            self._log_ai_filter(filter_result, best)
+            self._log_ai_filter(filter_result, selected_signal)
             self.logger.info(
                 "AI gate decision",
                 extra={
                     "extra_data": {
-                        "strategy": best.strategy,
-                        "signal": best.signal.value,
+                        "strategy": selected_signal.strategy,
+                        "signal": selected_signal.signal.value,
                         "decision": filter_result.decision,
                         "reason": filter_result.reasoning,
                     }
@@ -307,14 +331,14 @@ class BotRunner:
                 open_positions=len(positions),
                 daily_realized_pnl=daily_pnl,
                 symbol=self.settings.symbol,
-                direction=best.signal.value,
+                direction=selected_signal.signal.value,
             )
             if not allowed_trade:
                 self._log_blocked(reason)
                 self.logger.warning("Guardrail blocked signal", extra={"extra_data": {"reason": reason}})
                 blocked_signal = TradeSignal(
-                    best.signal,
-                    int(max(0, min(100, round(best.confidence * 100)))),
+                    selected_signal.signal,
+                    int(max(0, min(100, round(selected_signal.confidence * 100)))),
                     reason,
                     None,
                     None,
@@ -331,17 +355,17 @@ class BotRunner:
                 return
 
             tick = self.data.get_tick(self.settings.symbol)
-            entry = float(tick.ask if best.signal == Signal.BUY else tick.bid)
+            entry = float(tick.ask if selected_signal.signal == Signal.BUY else tick.bid)
             sl = float(filter_result.suggested_sl) if filter_result.suggested_sl is not None else (
-                entry - best.sl_basis if best.signal == Signal.BUY else entry + best.sl_basis
+                entry - selected_signal.sl_basis if selected_signal.signal == Signal.BUY else entry + selected_signal.sl_basis
             )
             tp = float(filter_result.suggested_tp) if filter_result.suggested_tp is not None else (
-                entry + best.tp_basis if best.signal == Signal.BUY else entry - best.tp_basis
+                entry + selected_signal.tp_basis if selected_signal.signal == Signal.BUY else entry - selected_signal.tp_basis
             )
-            if best.signal == Signal.BUY and not (sl < entry < tp):
+            if selected_signal.signal == Signal.BUY and not (sl < entry < tp):
                 self._log_hold("Invalid BUY SL/TP after filter")
                 return
-            if best.signal == Signal.SELL and not (tp < entry < sl):
+            if selected_signal.signal == Signal.SELL and not (tp < entry < sl):
                 self._log_hold("Invalid SELL SL/TP after filter")
                 return
             lot = calculate_position_size(
@@ -350,29 +374,29 @@ class BotRunner:
                 entry_price=entry,
                 sl_price=sl,
             )
-            signal_decision = self._signal_to_trade_signal(best, entry, sl, tp)
+            signal_decision = self._signal_to_trade_signal(selected_signal, entry, sl, tp)
 
             request = OrderRequest(
                 symbol=self.settings.symbol,
-                signal=best.signal,
+                signal=selected_signal.signal,
                 lot=lot,
                 price=entry,
                 sl=sl,
                 tp=tp,
                 deviation=self.settings.execution.deviation,
-                comment=f"goldbot:hybrid:{best.strategy}",
+                comment=f"goldbot:hybrid:{selected_signal.strategy}",
             )
             result = self.executor.place_order(request)
-            self._log_trade_executed(signal_decision, lot, entry, sl, tp, result, strategy=best.strategy)
+            self._log_trade_executed(signal_decision, lot, entry, sl, tp, result, strategy=selected_signal.strategy)
             now = datetime.now(tz=timezone.utc)
-            self.guardrails.register_entry(now, self.settings.symbol, best.signal.value)
+            self.guardrails.register_entry(now, self.settings.symbol, selected_signal.signal.value)
 
             self.journal.record(
                 {
                     "timestamp": now.isoformat(),
-                    "strategy": best.strategy,
+                    "strategy": selected_signal.strategy,
                     "regime": regime,
-                    "signal": best.signal.value,
+                    "signal": selected_signal.signal.value,
                     "entry": entry,
                     "sl": sl,
                     "tp": tp,
@@ -386,7 +410,7 @@ class BotRunner:
                 trend=regime.lower(),
                 result=filter_result,
                 trade_signal=signal_decision,
-                action=best.signal,
+                action=selected_signal.signal,
                 reasoning=filter_result.reasoning,
             )
             self.memory.record_analysis(

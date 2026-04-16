@@ -45,6 +45,15 @@ class OrchestratorTests(unittest.TestCase):
         self.assertEqual(selector.allowed_strategies("RANGING"), {"mean_reversion_rsi_bb"})
         self.assertEqual(selector.allowed_strategies("UNKNOWN"), set())
 
+    def test_regime_selector_classifies_breakout_trending_and_ranging(self) -> None:
+        selector = RegimeSelector()
+        breakout = selector.classify([{"close": 100.0, "atr": 0.5, "ema_fast": 100.0, "ema_slow": 100.0}])
+        trending = selector.classify([{"close": 100.0, "atr": 0.1, "ema_fast": 101.0, "ema_slow": 100.0}])
+        ranging = selector.classify([{"close": 100.0, "atr": 0.1, "ema_fast": 100.02, "ema_slow": 100.0}])
+        self.assertEqual(breakout, "BREAKOUT")
+        self.assertEqual(trending, "TRENDING")
+        self.assertEqual(ranging, "RANGING")
+
     def test_best_signal_sorted_by_confidence(self) -> None:
         selector = RegimeSelector()
         strategies = [

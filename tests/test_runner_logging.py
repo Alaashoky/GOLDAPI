@@ -23,7 +23,7 @@ class RunnerLoggingTests(unittest.TestCase):
     @patch("goldbot.app.runner.AITradeFilter", return_value=SimpleNamespace())
     @patch("goldbot.app.runner.MT5Executor", return_value=SimpleNamespace())
     @patch("goldbot.app.runner.MT5DataAdapter", return_value=SimpleNamespace())
-    def test_runner_registers_regime_strategies(self, *_mocks) -> None:
+    def test_runner_registers_three_regime_strategies(self, *_mocks) -> None:
         settings = SimpleNamespace(
             mt5_login=0,
             mt5_password="",
@@ -165,11 +165,13 @@ class RunnerLoggingTests(unittest.TestCase):
             shutdown=lambda: None,
             ensure_symbol=lambda _symbol: None,
         )
-        place_order_calls = {"count": 0}
-        runner.executor = SimpleNamespace(
-            bind_mt5=lambda _mt5: None,
-            place_order=lambda _request: place_order_calls.update({"count": place_order_calls["count"] + 1}),
-        )
+        place_order_count = 0
+
+        def _track_place_order(_request: object) -> None:
+            nonlocal place_order_count
+            place_order_count += 1
+
+        runner.executor = SimpleNamespace(bind_mt5=lambda _mt5: None, place_order=_track_place_order)
         runner.news_feed = SimpleNamespace(fetch=lambda limit=15: [])
         recorded = {"candidate": None}
         runner.ai_filter = SimpleNamespace(
@@ -192,7 +194,7 @@ class RunnerLoggingTests(unittest.TestCase):
             StrategyRun(
                 strategy="atr_vol_expansion",
                 signal=CandidateSignal("atr_vol_expansion", Signal.SELL, 0.6, "Bearish expansion", 5.0, 8.0),
-                blocked=False,
+                blocked=True,
             ),
         ]
         runner.orchestrator = SimpleNamespace(
@@ -224,7 +226,7 @@ class RunnerLoggingTests(unittest.TestCase):
         self.assertEqual(all_signals[0]["signal"], "BUY")
         self.assertEqual(all_signals[1]["strategy"], "atr_vol_expansion")
         self.assertEqual(all_signals[1]["signal"], "SELL")
-        self.assertEqual(place_order_calls["count"], 0)
+        self.assertEqual(place_order_count, 0)
 
     @patch("goldbot.app.runner.fetch_multi_timeframe_data")
     def test_run_once_executes_order_on_ai_approve(self, mock_fetch_multi_timeframe_data) -> None:
@@ -248,9 +250,14 @@ class RunnerLoggingTests(unittest.TestCase):
             get_tick=lambda _symbol: SimpleNamespace(ask=100.2, bid=100.0),
         )
         recorded_orders: list[object] = []
+
+        def _place_order(request: object) -> OrderResult:
+            recorded_orders.append(request)
+            return OrderResult(ok=True, message="placed")
+
         runner.executor = SimpleNamespace(
             bind_mt5=lambda _mt5: None,
-            place_order=lambda request: (recorded_orders.append(request) or OrderResult(ok=True, message="placed")),
+            place_order=_place_order,
         )
         runner.news_feed = SimpleNamespace(fetch=lambda limit=15: [])
         runner.ai_filter = SimpleNamespace(
