@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from goldbot.execution.models import Signal
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
 from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
+from goldbot.strategies.momentum import MomentumStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
 from goldbot.strategies.order_block import OrderBlockStrategy
 from goldbot.strategies.pivot_bounce import PivotBounceStrategy
@@ -108,6 +109,17 @@ class NewStrategiesTests(unittest.TestCase):
     def test_fibonacci_pullback_default_lookback_is_80(self) -> None:
         self.assertEqual(FibonacciPullbackStrategy().lookback, 80)
 
+    def test_fibonacci_pullback_buy_with_neutral_ema(self) -> None:
+        bars = [
+            {"high": 110.0, "low": 100.0, "close": 109.0, "ema_fast": 106.0, "ema_slow": 106.0, "rsi": 50.0},
+            {"high": 109.0, "low": 101.0, "close": 108.0, "ema_fast": 106.0, "ema_slow": 106.0, "rsi": 50.0},
+            {"high": 108.0, "low": 102.0, "close": 107.0, "ema_fast": 106.0, "ema_slow": 106.0, "rsi": 50.0},
+            {"high": 107.0, "low": 103.0, "close": 106.0, "ema_fast": 106.0, "ema_slow": 106.0, "rsi": 50.0},
+            {"high": 106.0, "low": 104.0, "close": 105.0, "ema_fast": 104.99, "ema_slow": 105.01, "rsi": 50.0},
+        ]
+        signal = FibonacciPullbackStrategy(lookback=5).evaluate(bars)
+        self.assertEqual(signal.signal, Signal.BUY)
+
     def test_mean_reversion_buy_allows_atr_proximity(self) -> None:
         bars = [
             {
@@ -178,6 +190,28 @@ class NewStrategiesTests(unittest.TestCase):
         }
         signal = MTFConfluenceStrategy().evaluate_multi(multi)
         self.assertEqual(signal.signal, Signal.BUY)
+
+    def test_momentum_strategy_buy(self) -> None:
+        bars = [
+            {"close": 100.0, "ema_fast": 99.0, "ema_slow": 100.0, "rsi": 45.0, "macd_hist": 0.0, "stoch_rsi": 0.4, "atr": 1.0},
+            {"close": 100.5, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 46.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+            {"close": 101.0, "ema_fast": 100.8, "ema_slow": 100.5, "rsi": 55.0, "macd_hist": 0.3, "stoch_rsi": 0.7, "atr": 1.2},
+            {"close": 101.5, "ema_fast": 100.9, "ema_slow": 100.6, "rsi": 55.0, "macd_hist": 0.3, "stoch_rsi": 0.7, "atr": 1.2},
+            {"close": 102.0, "ema_fast": 101.0, "ema_slow": 100.7, "rsi": 55.0, "macd_hist": 0.3, "stoch_rsi": 0.7, "atr": 1.2},
+        ]
+        signal = MomentumStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.BUY)
+
+    def test_momentum_strategy_hold_when_mixed(self) -> None:
+        bars = [
+            {"close": 100.0, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 50.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+            {"close": 100.0, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 50.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+            {"close": 100.0, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 50.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+            {"close": 100.0, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 50.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+            {"close": 100.0, "ema_fast": 100.0, "ema_slow": 100.0, "rsi": 50.0, "macd_hist": 0.0, "stoch_rsi": 0.5, "atr": 1.0},
+        ]
+        signal = MomentumStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.HOLD)
 
 
 if __name__ == "__main__":

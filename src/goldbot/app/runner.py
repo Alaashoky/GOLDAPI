@@ -24,6 +24,7 @@ from goldbot.strategies.atr_vol_expansion import ATRVolExpansionStrategy
 from goldbot.strategies.breakout_london_ny import BreakoutLondonNYStrategy
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
 from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
+from goldbot.strategies.momentum import MomentumStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
 from goldbot.strategies.orchestrator import StrategyOrchestrator, StrategyRun
 from goldbot.strategies.order_block import OrderBlockStrategy
@@ -66,6 +67,7 @@ class BotRunner:
                 ATRVolExpansionStrategy(),
                 MeanReversionRSIBBStrategy(),
                 PivotBounceStrategy(),
+                MomentumStrategy(),
             ],
             regime_selector=self.regime_selector,
         )
@@ -103,6 +105,8 @@ class BotRunner:
                 sl = entry - signal.sl_basis if signal.signal == Signal.BUY else entry + signal.sl_basis
                 tp = entry + signal.tp_basis if signal.signal == Signal.BUY else entry - signal.tp_basis
                 print(f"      Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f}")
+                print(f"      Reason: {signal.rationale}")
+            if signal.signal == Signal.HOLD and signal.rationale:
                 print(f"      Reason: {signal.rationale}")
         print(self._DIVIDER)
 
