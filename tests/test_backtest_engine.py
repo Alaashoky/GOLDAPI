@@ -8,6 +8,10 @@ from goldbot.backtest.engine import BacktestEngine
 from goldbot.execution.models import CandidateSignal, Signal
 from goldbot.strategies.base import Strategy, hold
 
+TEST_CONFIDENCE = 0.8
+TEST_SL_BASIS = 1.0
+IGNORED_TP_BASIS = 0.1
+
 
 class _SingleSignalStrategy(Strategy):
     name = "test"
@@ -18,8 +22,12 @@ class _SingleSignalStrategy(Strategy):
 
     def evaluate(self, bars: list[dict]) -> CandidateSignal:
         if len(bars) == self.trigger_len:
-            return CandidateSignal(self.name, self.signal, 0.8, "test", 1.0, 1.0)
+            return CandidateSignal(self.name, self.signal, TEST_CONFIDENCE, "test", TEST_SL_BASIS, IGNORED_TP_BASIS)
         return hold(self.name, "wait")
+
+
+class _LiquiditySweepSignalStrategy(_SingleSignalStrategy):
+    name = "liquidity_sweep"
 
 
 def _build_bars() -> list[dict]:
@@ -44,6 +52,7 @@ def _build_bars() -> list[dict]:
 class BacktestEngineEntryModelTests(unittest.TestCase):
     def test_buy_uses_next_open_and_spread_points(self) -> None:
         bars = _build_bars()
+        bars[31]["high"] = 102.7
         bars[31]["low"] = 99.7
         result = BacktestEngine().run(
             bars=bars,
@@ -59,10 +68,12 @@ class BacktestEngineEntryModelTests(unittest.TestCase):
         self.assertEqual(trade["signal_index"], 30)
         self.assertEqual(trade["entry_index"], 31)
         self.assertAlmostEqual(trade["entry"], 100.6, places=6)
+        self.assertAlmostEqual(trade["tp"] - trade["entry"], 2 * abs(trade["entry"] - trade["sl"]), places=6)
         self.assertEqual(trade["reason"], "TP")
 
     def test_sell_uses_next_open_and_spread_points(self) -> None:
         bars = _build_bars()
+        bars[31]["low"] = 97.3
         bars[31]["high"] = 100.3
         result = BacktestEngine().run(
             bars=bars,
@@ -78,7 +89,27 @@ class BacktestEngineEntryModelTests(unittest.TestCase):
         self.assertEqual(trade["signal_index"], 30)
         self.assertEqual(trade["entry_index"], 31)
         self.assertAlmostEqual(trade["entry"], 99.4, places=6)
+        self.assertAlmostEqual(trade["entry"] - trade["tp"], 2 * abs(trade["entry"] - trade["sl"]), places=6)
         self.assertEqual(trade["reason"], "TP")
+
+    def test_h1_trend_filter_blocks_liquidity_sweep_buy_when_bearish(self) -> None:
+        bars = _build_bars()
+        result = BacktestEngine().run(
+            bars=bars,
+            strategy=_LiquiditySweepSignalStrategy(Signal.BUY),
+            h1_trends=["bearish"] * len(bars),
+        )
+        self.assertEqual(result["trades"], [])
+
+    def test_h1_trend_filter_allows_liquidity_sweep_buy_when_bullish(self) -> None:
+        bars = _build_bars()
+        bars[31]["high"] = 102.7
+        result = BacktestEngine().run(
+            bars=bars,
+            strategy=_LiquiditySweepSignalStrategy(Signal.BUY),
+            h1_trends=["bullish"] * len(bars),
+        )
+        self.assertEqual(len(result["trades"]), 1)
 
 
 if __name__ == "__main__":

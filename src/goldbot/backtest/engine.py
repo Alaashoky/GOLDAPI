@@ -6,10 +6,22 @@ from goldbot.backtest.metrics import calculate_metrics
 from goldbot.execution.order_models import Signal
 from goldbot.risk.position_sizing import calculate_position_size
 from goldbot.strategies.base import Strategy
+from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 
 
 class BacktestEngine:
     WARMUP_BARS = 30
+    TP_TO_SL_RATIO = 2.0
+
+    def _apply_h1_trend_filter(self, signal: Signal, strategy: Strategy, h1_trend: str | None) -> bool:
+        if strategy.name != LiquiditySweepStrategy.name:
+            return True
+        trend = (h1_trend or "").lower()
+        if signal == Signal.BUY:
+            return trend == "bullish"
+        if signal == Signal.SELL:
+            return trend == "bearish"
+        return True
 
     def _pnl(self, side: str, entry: float, exit_price: float, lot: float, contract_size: float) -> float:
         if side == Signal.BUY.value:
@@ -29,6 +41,7 @@ class BacktestEngine:
         volume_min: float = 0.01,
         volume_step: float = 0.01,
         volume_max: float = 100.0,
+        h1_trends: list[str] | None = None,
     ) -> dict:
         balance = starting_balance
         equity_curve = [balance]
@@ -45,7 +58,7 @@ class BacktestEngine:
                 raw_open = float(current["open"])
                 entry = raw_open + spread_price if pending_entry["signal"] == Signal.BUY.value else raw_open - spread_price
                 sl_distance = float(pending_entry["sl_distance"])
-                tp_distance = float(pending_entry["tp_distance"])
+                tp_distance = sl_distance * self.TP_TO_SL_RATIO
                 if pending_entry["signal"] == Signal.BUY.value:
                     sl = entry - sl_distance
                     tp = entry + tp_distance
@@ -109,23 +122,27 @@ class BacktestEngine:
             if position is None:
                 decision = strategy.evaluate(sample)
                 if decision.signal in {Signal.BUY, Signal.SELL}:
+                    h1_trend = h1_trends[i] if h1_trends is not None and i < len(h1_trends) else None
+                    if not self._apply_h1_trend_filter(decision.signal, strategy, h1_trend):
+                        equity_curve.append(balance)
+                        continue
                     if entry_model == "next_open":
                         if i + 1 < len(bars):
                             pending_entry = {
                                 "signal": decision.signal.value,
                                 "sl_distance": decision.sl_basis,
-                                "tp_distance": decision.tp_basis,
                                 "signal_index": i,
                             }
                     else:
                         entry = float(current["close"])
                         entry += spread_price if decision.signal == Signal.BUY else -spread_price
+                        tp_distance = float(decision.sl_basis) * self.TP_TO_SL_RATIO
                         if decision.signal == Signal.BUY:
                             sl = entry - decision.sl_basis
-                            tp = entry + decision.tp_basis
+                            tp = entry + tp_distance
                         else:
                             sl = entry + decision.sl_basis
-                            tp = entry - decision.tp_basis
+                            tp = entry - tp_distance
                         lot = calculate_position_size(
                             account_balance=balance,
                             risk_per_trade_pct=risk_per_trade_pct,

@@ -43,6 +43,37 @@ def _time_to_iso(value: object) -> str:
     return str(value)
 
 
+def _trend_from_h1_bar(bar: dict) -> str:
+    trend = str(bar.get("trend", "")).lower()
+    if trend in {"bullish", "bearish", "neutral"}:
+        return trend
+    ema_fast = float(bar.get("ema_fast", 0.0))
+    ema_slow = float(bar.get("ema_slow", 0.0))
+    if ema_fast > ema_slow:
+        return "bullish"
+    if ema_fast < ema_slow:
+        return "bearish"
+    return "neutral"
+
+
+def _build_h1_trend_series(m15_bars: list[dict], h1_bars: list[dict]) -> list[str]:
+    if not m15_bars:
+        return []
+    if not h1_bars:
+        return ["neutral"] * len(m15_bars)
+    sorted_h1 = sorted(h1_bars, key=lambda b: float(b.get("time", 0.0)))
+    trends: list[str] = []
+    h1_idx = 0
+    current_trend = _trend_from_h1_bar(sorted_h1[0])
+    for bar in m15_bars:
+        t = float(bar.get("time", 0.0))
+        while h1_idx + 1 < len(sorted_h1) and float(sorted_h1[h1_idx + 1].get("time", 0.0)) <= t:
+            h1_idx += 1
+            current_trend = _trend_from_h1_bar(sorted_h1[h1_idx])
+        trends.append(current_trend)
+    return trends
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="goldbot")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -96,6 +127,7 @@ def main() -> None:
 
     if args.cmd == "backtest":
         symbol = args.symbol or settings.symbol
+        h1_bars: list[dict] = []
         if args.csv:
             bars = _load_csv_bars(args.csv)
             point_value = args.point_value if args.point_value is not None else 0.0
@@ -111,6 +143,7 @@ def main() -> None:
             try:
                 adapter.ensure_symbol(symbol)
                 bars = adapter.get_rates_range(symbol, args.timeframe.upper(), from_dt, to_dt)
+                h1_bars = adapter.get_rates_range(symbol, "H1", from_dt, to_dt)
                 info = adapter.symbol_info(symbol)
             finally:
                 adapter.shutdown()
@@ -124,6 +157,8 @@ def main() -> None:
             volume_max = float(getattr(info, "volume_max", 100.0) or 100.0)
 
         bars = append_indicators(bars)
+        h1_bars = append_indicators(h1_bars) if h1_bars else []
+        h1_trends = _build_h1_trend_series(bars, h1_bars)
         engine = BacktestEngine()
         risk_pct = (
             args.risk_per_trade_pct
@@ -142,6 +177,7 @@ def main() -> None:
             volume_min=volume_min,
             volume_step=volume_step,
             volume_max=volume_max,
+            h1_trends=h1_trends,
         )
 
         journal = TradeJournal(str(args.trades_csv))
@@ -172,6 +208,15 @@ def main() -> None:
         metrics["spread_points"] = args.spread_points
         metrics["point_value"] = point_value
         print(json.dumps(metrics, indent=2))
+        print(
+            "Summary: PF={pf:.3f} | Trades={trades:.0f} | WinRate={wr:.2%} | PnL={pnl:.2f} | MaxDD={dd:.2f}".format(
+                pf=float(metrics.get("profit_factor", 0.0)),
+                trades=int(metrics.get("trades", 0.0)),
+                wr=float(metrics.get("win_rate", 0.0)),
+                pnl=float(metrics.get("total_pnl", 0.0)),
+                dd=float(metrics.get("max_drawdown", 0.0)),
+            )
+        )
 
 
 if __name__ == "__main__":
