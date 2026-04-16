@@ -13,9 +13,14 @@ class MeanReversionRSIBBStrategy(Strategy):
         if len(bars) < 2:
             return hold(self.name, "Not enough bars")
         last = bars[-1]
+        close = float(last["close"])
+        bb_lower = float(last["bb_lower"])
+        bb_upper = float(last["bb_upper"])
+        rsi = float(last["rsi"])
+        atr = float(last["atr"])
 
-        if last["close"] <= last["bb_lower"] and last["rsi"] <= 30:
-            return CandidateSignal(self.name, Signal.BUY, 0.65, "Oversold at lower band", last["atr"] * 1.0, last["atr"] * 1.6)
-        if last["close"] >= last["bb_upper"] and last["rsi"] >= 70:
-            return CandidateSignal(self.name, Signal.SELL, 0.65, "Overbought at upper band", last["atr"] * 1.0, last["atr"] * 1.6)
+        if rsi <= 35 and close <= bb_lower + (0.2 * atr):
+            return CandidateSignal(self.name, Signal.BUY, 0.65, "Oversold near lower band", atr * 1.0, atr * 1.6)
+        if rsi >= 65 and close >= bb_upper - (0.2 * atr):
+            return CandidateSignal(self.name, Signal.SELL, 0.65, "Overbought near upper band", atr * 1.0, atr * 1.6)
         return hold(self.name, "No mean-reversion setup")

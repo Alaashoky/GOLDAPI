@@ -64,6 +64,19 @@ class RunnerLoggingTests(unittest.TestCase):
         self.assertIn("🧠 AI FILTER — Evaluating: fibonacci_pullback BUY", text)
         self.assertIn("📋 Decision:     APPROVE ✅", text)
 
+    def test_log_strategy_signals_omits_blocked_label_when_not_blocked(self) -> None:
+        runner = self._runner()
+        run = StrategyRun(
+            strategy="mean_reversion_rsi_bb",
+            signal=CandidateSignal("mean_reversion_rsi_bb", Signal.BUY, 0.65, "setup", 1.0, 1.6),
+            blocked=False,
+        )
+        output = StringIO()
+        with redirect_stdout(output):
+            runner._log_strategy_signals("RANGING", [run], run.signal, entry=2000.0)
+        text = output.getvalue()
+        self.assertNotIn("[blocked by regime]", text)
+
     def test_log_trade_executed_prints_trade_details(self) -> None:
         runner = self._runner()
         decision = TradeSignal(Signal.BUY, 72, "Bullish trend on H1/H4.", 3225.5, 3210.0, 3255.0)

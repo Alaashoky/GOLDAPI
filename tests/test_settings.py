@@ -35,6 +35,11 @@ class SettingsTests(unittest.TestCase):
             settings = load_settings()
         self.assertEqual(settings.ai.timeout_seconds, 60)
 
+    def test_defaults_yaml_ai_analysis_bars_is_200(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            settings = load_settings()
+        self.assertEqual(settings.ai.analysis_bars, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,18 +25,14 @@ class RegimeSelector:
         return "RANGING"
 
     def allowed_strategies(self, regime: str) -> set[str]:
-        if regime == "TRENDING":
-            return {
-                "trend_ema_pullback",
-                "breakout_london_ny",
-                "atr_vol_expansion",
-                "fibonacci_pullback",
-                "session_breakout",
-                "order_block",
-                "mtf_confluence",
-            }
-        if regime == "HIGH_VOL":
-            return {"breakout_london_ny", "atr_vol_expansion", "session_breakout", "order_block"}
-        if regime == "RANGING":
-            return {"mean_reversion_rsi_bb", "trend_ema_pullback", "pivot_bounce", "fibonacci_pullback", "order_block"}
-        return set()
+        return {
+            "trend_ema_pullback",
+            "breakout_london_ny",
+            "atr_vol_expansion",
+            "fibonacci_pullback",
+            "session_breakout",
+            "order_block",
+            "mtf_confluence",
+            "mean_reversion_rsi_bb",
+            "pivot_bounce",
+        }

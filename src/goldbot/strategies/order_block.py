@@ -20,11 +20,11 @@ class OrderBlockStrategy(Strategy):
             block = bars[i]
             if float(block["close"]) < float(block["open"]):
                 move = bars[i + 1 : i + 4]
-                if len(move) < 3:
+                if len(move) < 2:
                     continue
                 strong = all(float(c["close"]) > float(c["open"]) for c in move)
                 thrust = float(move[-1]["close"]) - float(block["close"])
-                if not strong and thrust <= 2 * atr:
+                if not strong and thrust <= 1.5 * atr:
                     continue
                 ob_low = float(block["low"])
                 ob_high = float(block["high"])
@@ -44,11 +44,11 @@ class OrderBlockStrategy(Strategy):
 
             if float(block["close"]) > float(block["open"]):
                 move = bars[i + 1 : i + 4]
-                if len(move) < 3:
+                if len(move) < 2:
                     continue
                 strong = all(float(c["close"]) < float(c["open"]) for c in move)
                 thrust = float(block["close"]) - float(move[-1]["close"])
-                if not strong and thrust <= 2 * atr:
+                if not strong and thrust <= 1.5 * atr:
                     continue
                 ob_low = float(block["low"])
                 ob_high = float(block["high"])

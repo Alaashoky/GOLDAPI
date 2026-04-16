@@ -15,7 +15,7 @@ risk:
   duplicate_window_seconds: 120
 ai:
   model: gpt-4o
-  analysis_bars: 50
+  analysis_bars: 200
   timeout_seconds: 60
   retries: 1
 execution:

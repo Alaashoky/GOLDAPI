@@ -9,7 +9,7 @@ from goldbot.strategies.base import Strategy, hold
 class FibonacciPullbackStrategy(Strategy):
     name = "fibonacci_pullback"
 
-    def __init__(self, lookback: int = 20) -> None:
+    def __init__(self, lookback: int = 80) -> None:
         self.lookback = lookback
 
     def evaluate(self, bars: list[dict]) -> CandidateSignal:
