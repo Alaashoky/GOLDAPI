@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from goldbot.execution.models import Signal
 from goldbot.strategies.fibonacci_pullback import FibonacciPullbackStrategy
+from goldbot.strategies.liquidity_sweep import LiquiditySweepStrategy
 from goldbot.strategies.mean_reversion_rsi_bb import MeanReversionRSIBBStrategy
 from goldbot.strategies.momentum import MomentumStrategy
 from goldbot.strategies.mtf_confluence import MTFConfluenceStrategy
@@ -16,6 +17,65 @@ from goldbot.strategies.session_breakout import SessionBreakoutStrategy
 
 
 class NewStrategiesTests(unittest.TestCase):
+    def test_liquidity_sweep_buy(self) -> None:
+        bars = []
+        for i in range(25):
+            bars.append(
+                {
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "atr": 1.0,
+                }
+            )
+        bars[10]["low"] = 95.0
+        bars[22]["low"] = 94.0
+        bars[24]["open"] = 96.0
+        bars[24]["close"] = 97.0
+        bars[24]["low"] = 96.0
+        bars[24]["high"] = 98.0
+
+        signal = LiquiditySweepStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.BUY)
+
+    def test_liquidity_sweep_sell(self) -> None:
+        bars = []
+        for i in range(25):
+            bars.append(
+                {
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "atr": 1.0,
+                }
+            )
+        bars[10]["high"] = 115.0
+        bars[22]["high"] = 116.0
+        bars[24]["open"] = 114.0
+        bars[24]["close"] = 113.0
+        bars[24]["high"] = 114.0
+        bars[24]["low"] = 112.0
+
+        signal = LiquiditySweepStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.SELL)
+
+    def test_liquidity_sweep_hold(self) -> None:
+        bars = []
+        for i in range(25):
+            bars.append(
+                {
+                    "open": 100.0,
+                    "high": 102.0,
+                    "low": 98.0,
+                    "close": 100.0,
+                    "atr": 1.0,
+                }
+            )
+        signal = LiquiditySweepStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.HOLD)
+
     def test_fibonacci_pullback_buy(self) -> None:
         bars = []
         for i in range(20):

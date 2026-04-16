@@ -36,4 +36,5 @@ class RegimeSelector:
             "mean_reversion_rsi_bb",
             "pivot_bounce",
             "momentum",
+            "liquidity_sweep",
         }
