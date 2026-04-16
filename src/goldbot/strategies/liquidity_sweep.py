@@ -14,7 +14,7 @@ class LiquiditySweepStrategy(Strategy):
         self,
         swing_lookback: int = 5,
         confirmation_bars: int = 3,
-        sweep_threshold_multiplier: float = 0.1,
+        sweep_threshold_multiplier: float = 0.2,
         base_confidence: float = 0.65,
         max_confidence: float = 0.85,
     ) -> None:

@@ -17,6 +17,31 @@ from goldbot.strategies.session_breakout import SessionBreakoutStrategy
 
 
 class NewStrategiesTests(unittest.TestCase):
+    def test_liquidity_sweep_default_threshold_multiplier_is_point_two(self) -> None:
+        self.assertAlmostEqual(LiquiditySweepStrategy().sweep_threshold_multiplier, 0.2)
+
+    def test_liquidity_sweep_requires_minimum_sweep_of_point_two_atr(self) -> None:
+        bars = []
+        for i in range(25):
+            bars.append(
+                {
+                    "open": 100.0,
+                    "high": 105.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                    "atr": 1.0,
+                }
+            )
+        bars[10]["low"] = 95.0
+        bars[22]["low"] = 94.85  # 0.15 ATR sweep below prior swing low
+        bars[24]["open"] = 96.0
+        bars[24]["close"] = 97.0
+        bars[24]["low"] = 96.0
+        bars[24]["high"] = 98.0
+
+        signal = LiquiditySweepStrategy().evaluate(bars)
+        self.assertEqual(signal.signal, Signal.HOLD)
+
     def test_liquidity_sweep_buy(self) -> None:
         bars = []
         for i in range(25):
